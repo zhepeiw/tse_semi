@@ -216,7 +216,8 @@ class Separation(sb.Brain):
             #      )
             #      self.train_loss_buffer = []
         if self.hparams.use_wandb:
-            loss_dict['total_loss'] = loss
+            if len(loss_dict) > 1:
+                loss_dict['total_loss'] = loss
             for loss_nm, loss_val in loss_dict.items():
                 if loss_nm not in self.train_loss_buffer:
                     self.train_loss_buffer[loss_nm] = []
