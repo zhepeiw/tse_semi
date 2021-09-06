@@ -71,18 +71,6 @@ class Separation(sb.Brain):
         # Separation
         mix_w = self.hparams.Encoder(mix)
         dvec = self.hparams.Embedder(enrollment)
-        #  def compute_cos_sim(v1, v2):
-        #      return (v1 * v2).sum() / (torch.norm(v1) * torch.norm(v2))
-        #  dvec_sp1 = self.hparams.Embedder(targets[..., 0])
-        #  dvec_sp2 = self.hparams.Embedder(targets[..., 1])
-        #  sim_sp1 = compute_cos_sim(dvec, dvec_sp1)
-        #  sim_sp2 = compute_cos_sim(dvec, dvec_sp2)
-        #  diff = sim_sp1 - sim_sp2
-        #  mix_w_fuse = torch.cat([mix_w, dvec.unsqueeze(-1).expand(-1, -1, mix_w.shape[-1])], 1)  # [bs, H+D, L]
-        #  mix_w_fuse = self.hparams.Fusion(mix_w_fuse.permute(0,2,1).contiguous()).permute(0,2,1).contiguous()
-        #  mix_w_fuse = F.relu(mix_w_fuse)
-        #  est_mask = self.hparams.MaskNet(mix_w_fuse)
-        #  est_mask = self.hparams.MaskNet(mix_w)
         est_mask = self.hparams.MaskNet(mix_w, dvec)
         mix_w = torch.stack([mix_w] * self.hparams.num_spks)
         sep_h = mix_w * est_mask
@@ -104,22 +92,37 @@ class Separation(sb.Brain):
         else:
             est_source = est_source[:, :T_origin, :]
 
-        return est_source, targets
+        return est_source, targets, dvec
 
-    def compute_objectives(self, predictions, targets):
+    def compute_objectives(self, predictions, targets, enr_emb, stage):
         """Computes the sinr loss
             args:
                 predictions: [bs, L, nsrc]
                 targets: [bs, L, nsrc]
+                enr_emb: [bs, D]
         """
-        return self.hparams.loss(targets, predictions)
-        #  loss_sig1 = self.hparams.loss(targets[:, :, :1], predictions[:, :, :1])
-        #  loss_sig2 = self.hparams.loss(targets[:, :, 1:2], predictions[:, :, 1:2])
-        #  loss = (loss_sig1 + loss_sig2) / 2
-        #  predictions = predictions.permute(1, 0, 2).contiguous()
-        #  targets = targets.permute(1, 0, 2).contiguous()
-        #  loss = self.hparams.loss(targets, predictions).mean(dim=-1).squeeze(0)  # [B,]
-        #  return loss
+        output_dict = {}
+        if stage == sb.Stage.TRAIN:
+            loss_nm_fn_dict = self.hparams.train_loss
+        elif stage == sb.Stage.VALID:
+            loss_nm_fn_dict = self.hparams.valid_loss
+        else:
+            loss_nm_fn_dict = self.hparams.test_loss
+
+        for loss_nm, loss_fn in loss_nm_fn_dict.items():
+            if loss_nm in ['si-snr']:
+                output_dict[loss_nm] = loss_fn(targets, predictions)
+            elif loss_nm in ['triplet']:
+                # [bs, D]
+                s1_emb = self.hparams.Embedder(predictions[:, :, 0])
+                # [bs , D]
+                s2_emb = self.hparams.Embedder(predictions[:, :, 1])
+                output_dict[loss_nm] = loss_fn(enr_emb, s1_emb, s2_emb)
+        loss = 0.
+        for loss_nm, loss_val in output_dict.items():
+            loss += self.hparams.loss_lambdas.get(loss_nm, 1.) * loss_val
+        return loss, output_dict
+        #  return self.hparams.loss(targets, predictions)
 
     def fit_batch(self, batch):
         """Trains one batch"""
@@ -133,10 +136,10 @@ class Separation(sb.Brain):
 
         if self.hparams.auto_mix_prec:
             with autocast():
-                predictions, targets = self.compute_forward(
+                predictions, targets, enr_emb = self.compute_forward(
                     mixture, enrollment, targets, sb.Stage.TRAIN
                 )
-                loss = self.compute_objectives(predictions, targets)
+                loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, sb.Stage.TRAIN)
 
                 # hard threshold the easy dataitems
                 if self.hparams.threshold_byloss:
@@ -169,10 +172,10 @@ class Separation(sb.Brain):
                 )
                 loss.data = torch.tensor(0).to(self.device)
         else:
-            predictions, targets = self.compute_forward(
+            predictions, targets, enr_emb = self.compute_forward(
                 mixture, enrollment, targets, sb.Stage.TRAIN
             )
-            loss = self.compute_objectives(predictions, targets)
+            loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, sb.Stage.TRAIN)
 
             if self.hparams.threshold_byloss:
                 th = self.hparams.threshold
@@ -204,14 +207,31 @@ class Separation(sb.Brain):
         self.optimizer.zero_grad()
 
         # additional training logging
+        #  if self.hparams.use_wandb:
+            #  self.train_loss_buffer.append(loss.item())
+            #  if self.step % self.hparams.train_log_frequency == 0 and self.step > 1:
+            #      self.hparams.train_logger.log_stats(
+            #          stats_meta={"datapoints_seen": self.datapoints_seen},
+            #          train_stats={'buffer-si-snr': np.mean(self.train_loss_buffer)},
+            #      )
+            #      self.train_loss_buffer = []
         if self.hparams.use_wandb:
-            self.train_loss_buffer.append(loss.item())
+            loss_dict['total_loss'] = loss
+            for loss_nm, loss_val in loss_dict.items():
+                if loss_nm not in self.train_loss_buffer:
+                    self.train_loss_buffer[loss_nm] = []
+                self.train_loss_buffer[loss_nm].append(loss_val.item())
             if self.step % self.hparams.train_log_frequency == 0 and self.step > 1:
                 self.hparams.train_logger.log_stats(
                     stats_meta={"datapoints_seen": self.datapoints_seen},
-                    train_stats={'buffer-si-snr': np.mean(self.train_loss_buffer)},
+                    #  train_stats={'buffer-si-snr': np.mean(self.train_loss_buffer)},
+                    train_stats = {'buffer-{}'.format(loss_nm): np.mean(loss_list) for loss_nm, loss_list in self.train_loss_buffer.items()}
                 )
-                self.train_loss_buffer = []
+                self.train_loss_buffer = {}
+
+        # very hacky update: model only keeps tracks of sisdr at the stage end
+        if 'si-snr' in loss_dict:
+            loss = loss_dict['si-snr']
 
         return loss.detach().cpu()
 
@@ -225,8 +245,8 @@ class Separation(sb.Brain):
             targets.append(batch.s3_sig)
 
         with torch.no_grad():
-            predictions, targets = self.compute_forward(mixture, enrollment, targets, stage)
-            loss = self.compute_objectives(predictions, targets)
+            predictions, targets, enr_emb = self.compute_forward(mixture, enrollment, targets, stage)
+            loss, _ = self.compute_objectives(predictions, targets, enr_emb, stage)
 
         # Manage logging with wandb
         if stage == sb.Stage.VALID and self.hparams.use_wandb and self.step <= self.hparams.log_audio_limit:
@@ -247,7 +267,8 @@ class Separation(sb.Brain):
     def on_fit_start(self):
         super().on_fit_start()
         self.datapoints_seen = 0
-        self.train_loss_buffer = []
+        #  self.train_loss_buffer = []
+        self.train_loss_buffer = {}
         self.valid_stats = {}
 
     def on_stage_end(self, stage, stage_loss, epoch):
@@ -399,20 +420,20 @@ class Separation(sb.Brain):
                         targets.append(batch.s3_sig)
 
                     with torch.no_grad():
-                        predictions, targets = self.compute_forward(
+                        predictions, targets, enr_emb = self.compute_forward(
                             batch.mix_sig, targets, sb.Stage.TEST
                         )
 
                     # Compute SI-SNR
-                    sisnr = self.compute_objectives(predictions, targets)
+                    sisnr, _ = self.compute_objectives(predictions, targets, enr_emb, sb.Stage.TEST)
 
                     # Compute SI-SNR improvement
                     mixture_signal = torch.stack(
                         [mixture] * self.hparams.num_spks, dim=-1
                     )
                     mixture_signal = mixture_signal.to(targets.device)
-                    sisnr_baseline = self.compute_objectives(
-                        mixture_signal, targets
+                    sisnr_baseline, _ = self.compute_objectives(
+                        mixture_signal, targets, enr_emb, sb.Stage.TEST
                     )
                     sisnr_i = sisnr - sisnr_baseline
 
