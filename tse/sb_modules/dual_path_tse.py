@@ -199,6 +199,7 @@ class Dual_Path_Model(nn.Module):
         inter_model,
         num_layers=1,
         norm="ln",
+        fusion_type='cat',
         K=200,
         num_spks=2,
         skip_around_intra=True,
@@ -233,7 +234,7 @@ class Dual_Path_Model(nn.Module):
                 )
             )
             self.fusion_mdl.append(
-                nn.Linear(out_channels + emb_dim, out_channels)
+                FusionLayer(out_channels, emb_dim, fusion_type)
             )
 
         self.conv2d = nn.Conv2d(
@@ -283,13 +284,10 @@ class Dual_Path_Model(nn.Module):
         # [B, N, K, S]
         x, gap = self._Segmentation(x, self.K)
 
-        # [B, D, K, S]
-        emb = emb.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, x.shape[2], x.shape[3])
         # [B, N, K, S]
         for i in range(self.num_layers):
             # [B, N+D, K, S]
-            x = torch.cat([x, emb], dim=1)
-            x = self.fusion_mdl[i](x.permute(0, 2, 3, 1).contiguous()).permute(0, 3, 1, 2).contiguous()
+            x = self.fusion_mdl[i](x, emb)
             x = self.dual_mdl[i](x)
         x = self.prelu(x)
 
@@ -405,4 +403,56 @@ class Dual_Path_Model(nn.Module):
 
         return input
 
+
+class FusionLayer(nn.Module):
+    def __init__(
+        self,
+        in_dim,
+        emb_dim,
+        fusion_type='cat'
+    ):
+        super().__init__()
+        assert fusion_type in ['cat', 'add', 'mult']
+        self.fusion_type = fusion_type
+        if fusion_type == 'cat':
+            self.layer = nn.Linear(in_dim + emb_dim, in_dim)
+        elif fusion_type in ['add', 'mult']:
+            self.layer = nn.Linear(emb_dim, in_dim)
+
+    def forward(self, x, emb):
+        '''
+            args:
+                x: Tensor with shape [B, N, K, S],
+                    B is batch size, N is channel, K is chunk len, S is num chunk
+                emb: Tensor with shape [B, D]
+                    D is embedder dimension
+        '''
+        # [B, D, K, S]
+        emb = emb.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, x.shape[2], x.shape[3])
+        if self.fusion_type == 'cat':
+            # [B, N+D, K, S]
+            x = torch.cat([x, emb], dim=1)
+            # [B, K, S, N+D]
+            x = x.permute(0, 2, 3, 1).contiguous()
+            # [B, K, S, N]
+            out = self.layer(x)
+            # [B, N, K, S]
+            out = out.permute(0, 3, 1, 2).contiguous()
+        elif self.fusion_type == 'add':
+            # [B, K, S, D]
+            emb = emb.permute(0, 2, 3, 1).contiguous()
+            # [B, K, S, N]
+            out = self.layer(emb)
+            # [B, N, K, S]
+            out = out.permute(0, 3, 1, 2).contiguous()
+            out = x + out
+        elif self.fusion_type == 'mult':
+            # [B, K, S, D]
+            emb = emb.permute(0, 2, 3, 1).contiguous()
+            # [B, K, S, N]
+            out = self.layer(emb)
+            # [B, N, K, S]
+            out = out.permute(0, 3, 1, 2).contiguous()
+            out = x * out
+        return out
 

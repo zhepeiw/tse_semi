@@ -159,6 +159,7 @@ MaskNet: !new:sb_modules.dual_path_tse.Dual_Path_Model
     in_channels: !ref <N_encoder_out>
     out_channels: !ref <out_channels>
     emb_dim: !ref <N_emb_dim>
+    fusion_type: cat
     num_layers: 2
     K: 250
     intra_model: !ref <SBtfintra>
