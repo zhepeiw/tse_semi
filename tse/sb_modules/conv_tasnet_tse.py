@@ -54,6 +54,7 @@ class MaskNet(nn.Module):
         emb_dim,
         norm_type="gLN",
         causal=False,
+        fusion_type='cat',
         mask_nonlinear="relu",
     ):
         super(MaskNet, self).__init__()
@@ -74,7 +75,7 @@ class MaskNet(nn.Module):
         # [M, K, B] -> [M, K, B]
         in_shape = (None, None, B)
         self.temporal_conv_net = TemporalBlocksSequential(
-            in_shape, emb_dim, H, P, R, X, norm_type, causal
+            in_shape, emb_dim, H, P, R, X, norm_type, causal, fusion_type
         )
 
         # [M, K, B] -> [M, K, C*N]
@@ -145,21 +146,21 @@ class TemporalBlocksSequential(nn.Module):
     >>> x = torch.randn(14, 100, 10)
     >>> H, P, R, X = 10, 5, 2, 3
     >>> TemporalBlocks = TemporalBlocksSequential(
-    ...     x.shape, H, P, R, X, 'gLN', False
+    ...     x.shape, H, P, R, X, 'gLN', False, 'cat'
     ... )
     >>> y = TemporalBlocks(x)
     >>> y.shape
     torch.Size([14, 100, 10])
     """
 
-    def __init__(self, input_shape, emb_dim, H, P, R, X, norm_type, causal):
+    def __init__(self, input_shape, emb_dim, H, P, R, X, norm_type, causal, fusion_type):
         super().__init__()
         B = input_shape[-1]
         self.fusion_modules = nn.ModuleList([])
         self.ctn_modules = nn.ModuleList([])
         for r in range(R):
             self.fusion_modules.append(
-                nn.Linear(B + emb_dim, B)
+                FusionLayer(B, emb_dim, fusion_type)
             )
             for x in range(X):
                 dilation = 2 ** x
@@ -196,13 +197,9 @@ class TemporalBlocksSequential(nn.Module):
         '''
         R = len(self.fusion_modules)
         X = len(self.ctn_modules) // R
-        # [M, K, D]
-        emb = emb.unsqueeze(1).expand(-1, inp.shape[1], -1)
         for r in range(R):
-            # [M, K, B+D]
-            inp = torch.cat([inp, emb], dim=-1)
             # [M, K, B]
-            inp = self.fusion_modules[r](inp)
+            inp = self.fusion_modules[r](inp, emb)
             for x in range(X):
                 # [M, K, B]
                 inp = self.ctn_modules[r*X+x](inp)
@@ -426,4 +423,45 @@ class DepthwiseSeparableConv(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
+
+
+class FusionLayer(nn.Module):
+    def __init__(
+        self,
+        in_dim,
+        emb_dim,
+        fusion_type='cat'
+    ):
+        super().__init__()
+        assert fusion_type in ['cat', 'add', 'mult']
+        self.fusion_type = fusion_type
+        if fusion_type == 'cat':
+            self.layer = nn.Linear(in_dim + emb_dim, in_dim)
+        elif fusion_type in ['add', 'mult']:
+            self.layer = nn.Linear(emb_dim, in_dim)
+
+    def forward(self, x, emb):
+        '''
+            args:
+                x: Tensor with shape [B, K, N],
+                    B is batch size, N is channel, K is chunk len
+                emb: Tensor with shape [B, D]
+                    D is embedder dimension
+        '''
+        # [B, K, D]
+        emb = emb.unsqueeze(1).expand(-1, x.shape[1], -1)
+        if self.fusion_type == 'cat':
+            # [B, K, N+D]
+            x = torch.cat([x, emb], dim=-1)
+            # [B, K, N]
+            out = self.layer(x)
+        elif self.fusion_type == 'add':
+            # [B, K, N]
+            out = self.layer(emb)
+            out = x + out
+        elif self.fusion_type == 'mult':
+            # [B, K, N]
+            out = self.layer(emb)
+            out = x * out
+        return out
 

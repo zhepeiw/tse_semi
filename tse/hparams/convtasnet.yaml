@@ -147,6 +147,7 @@ MaskNet: !new:sb_modules.conv_tasnet_tse.MaskNet
     emb_dim: !ref <N_emb_dim>
     norm_type: 'gLN'
     causal: False
+    fusion_type: 'cat'
     mask_nonlinear: 'relu'
 
 Decoder: !new:speechbrain.lobes.models.dual_path.Decoder
@@ -161,10 +162,28 @@ optimizer: !name:torch.optim.Adam
     weight_decay: 0
 
 # loss: !name:speechbrain.nnet.losses.get_si_snr_with_pitwrapper
-first_channel_only: False
-loss: !new:losses.MultiSrcNegSDR
-    sdr_type: sisdr
-    first_channel_only: !ref <first_channel_only>
+# first_channel_only: False
+# loss: !new:losses.MultiSrcNegSDR
+#     sdr_type: sisdr
+#     first_channel_only: !ref <first_channel_only>
+#
+loss_lambdas:
+    si-snr: 1.
+    triplet: 0.05
+
+train_loss:
+    si-snr: !new:losses.MultiSrcNegSDR
+        sdr_type: sisdr
+        first_channel_only: False
+    # triplet: !new:torch.nn.TripletMarginLoss
+    #     margin: 1.0
+
+valid_loss: 
+    si-snr: !new:losses.MultiSrcNegSDR
+        sdr_type: sisdr
+        first_channel_only: True
+
+test_loss: !ref <valid_loss>
 
 lr_scheduler: !new:speechbrain.nnet.schedulers.ReduceLROnPlateau
     factor: 0.5
