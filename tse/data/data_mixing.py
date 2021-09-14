@@ -78,31 +78,54 @@ def static_mixing_prep(hparams, part):
 
 
 def dynamic_mixing_prep(hparams, part):
+    target_sr = hparams['sample_rate']
+    dur = hparams['training_signal_len'] // target_sr
     assert part in ['train', 'valid', 'test']
     ds = sb.dataio.dataset.DynamicItemDataset.from_csv(
         csv_path=hparams['{}_data'.format(part)]
     )
-    file_list = glob.glob(os.path.join(hparams['base_folder_dm'], '**/*.{}'.format(hparams['base_folder_dm_ext'])),
-                      recursive=True)
-    if hparams['overfit_utt'] is not None:
-        print('Overfitting dataset with size {}'.format(hparams['overfit_utt']))
-        file_list = random.sample(file_list, hparams['overfit_utt'])
-    sp_dict, sp_weights = build_sp_dict(file_list)
-    sp_list = [x for x in sp_dict.keys()]
-    sp_weights = [w / sum(sp_weights) for w in sp_weights]
-    info_dict = build_info_dict(file_list)
-    target_sr = hparams['sample_rate']
-    dur = hparams['training_signal_len'] // target_sr
+    # process clean and unclean corpus
+    sp_dict = {'clean': {}, 'unclean': {}}
+    info_dict = {}
+    sp_list = {'clean': [], 'unclean': []}
+    sp_weights = {'clean': [], 'unclean': []}
+    for folder_info in hparams['base_folder_dm_info_list']:
+        file_list = glob.glob(os.path.join(folder_info['path'], '**/*.{}'.format(folder_info['ext'])), recursive=True)
+        curr_sp_dict, _ = build_sp_dict(file_list)
+        sp_dict[folder_info['type']].update(curr_sp_dict)
+        info_dict.update(build_info_dict(file_list))
+    for clean_type in sp_dict.keys():
+        sp_list[clean_type] = [x for x in sp_dict[clean_type].keys()]
+        curr_sp_weights = [len(sp_dict[clean_type][spid]) for spid in sp_dict[clean_type].keys()]
+        curr_sp_weights = [w / sum(curr_sp_weights) for w in curr_sp_weights]
+        sp_weights[clean_type] = curr_sp_weights
+
+    #  if hparams['overfit_utt'] is not None:
+    #      print('Overfitting dataset with size {}'.format(hparams['overfit_utt']))
+    #      file_list = random.sample(file_list, hparams['overfit_utt'])
+    #  sp_dict, sp_weights = build_sp_dict(file_list)
+    #  sp_list = [x for x in sp_dict.keys()]
+    #  sp_weights = [w / sum(sp_weights) for w in sp_weights]
+    #  info_dict = build_info_dict(file_list)
+    #  pdb.set_trace()
     # setting pipelines
     @sb.utils.data_pipeline.takes('mix_path')
-    @sb.utils.data_pipeline.provides('mix_sig', 's1_sig', 's2_sig', 'enr_sig')
+    @sb.utils.data_pipeline.provides('mix_sig', 's1_sig', 's2_sig', 'enr_sig',
+                                     's1_clean', 's2_clean')
     def audio_pipeline(file_path):
+        # first, decide type of each speaker
+        sp1_type = 'clean' if np.random.rand() <= hparams['data_clean_prob'] else 'unclean'
+        sp2_type = 'clean' if np.random.rand() <= hparams['data_clean_prob'] else 'unclean'
         for attempts in range(10):
             # in case of IO failure
             try:
-                sp1, sp2 = np.random.choice(sp_list, 2, replace=False, p=sp_weights)
-                enr_path, s1_path = np.random.choice(sp_dict[sp1], 2, replace=True)
-                s2_path = np.random.choice(sp_dict[sp2], 1, replace=False)[0]
+                if sp1_type == sp2_type:
+                    sp1, sp2 = np.random.choice(sp_list[sp1_type], 2, replace=False, p=sp_weights[sp1_type])
+                else:
+                    sp1 = np.random.choice(sp_list[sp1_type], 1, replace=False, p=sp_weights[sp1_type])[0]
+                    sp2 = np.random.choice(sp_list[sp2_type], 1, replace=False, p=sp_weights[sp2_type])[0]
+                enr_path, s1_path = np.random.choice(sp_dict[sp1_type][sp1], 2, replace=True)
+                s2_path = np.random.choice(sp_dict[sp2_type][sp2], 1, replace=False)[0]
                 s1_sig = read_wav_tensor(s1_path,
                                         int(info_dict[s1_path]['length']),
                                         int(info_dict[s1_path]['sr']),
@@ -143,13 +166,15 @@ def dynamic_mixing_prep(hparams, part):
         yield mix_sig
         for i in range(sources.shape[0]):
             yield sources[i]
-
         yield enr_sig
+        # clean flags
+        yield torch.ones((1,)) if sp1_type == 'clean' else torch.zeros((1,))
+        yield torch.ones((1,)) if sp2_type == 'clean' else torch.zeros((1,))
 
     sb.dataio.dataset.add_dynamic_item([ds], audio_pipeline)
     # adding keys
     sb.dataio.dataset.set_output_keys(
-            [ds], ["id", "mix_sig", "s1_sig", "s2_sig", "enr_sig"]
+            [ds], ["id", "mix_sig", "s1_sig", "s2_sig", "enr_sig", 's1_clean', 's2_clean']
         )
     loader = torch.utils.data.DataLoader(
         ds,

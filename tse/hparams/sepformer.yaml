@@ -22,9 +22,19 @@ data_folder: '/mnt/data/Speech/wsj_tse'
 
 # base_folder_dm: '/mnt/nvme/Speech/librispeech/train-clean-360/train-clean-360/'
 # base_folder_dm_ext: 'flac'
-base_folder_dm: '/mnt/data/wsj0.8k/si_tr_s/'
-base_folder_dm_ext: 'wav'
-overfit_utt: null
+# base_folder_dm: '/mnt/data/wsj0.8k/si_tr_s/'
+# base_folder_dm_ext: 'wav'
+# overfit_utt: null
+#
+base_folder_dm_info_list:
+  - path: '/mnt/data/wsj0.8k/si_tr_s/'
+    ext: 'wav'
+    type: 'clean'
+  - path: '/mnt/data/Speech/VoxCeleb1/dev_wav/'
+    ext: 'wav'
+    type: 'unclean'
+
+data_clean_prob: 1.
 
 time_stamp: placeholder_stamp
 

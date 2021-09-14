@@ -42,19 +42,24 @@ class MultiSrcNegSDR(_Loss):
         self.EPS = 1e-8
         self.first_channel_only = first_channel_only
 
-    def forward(self, est_targets, targets):
+    def forward(self, est_targets, targets, src_masks=None):
         '''
             args:
                 est_targets: [bs, n_time, n_src]
+                src_mask: [bs, n_src] or None
         '''
         if targets.size() != est_targets.size() or targets.ndim != 3:
             raise TypeError(
                 f"Inputs must be of shape [batch, time, n_src], got {targets.size()} and {est_targets.size()} instead"
             )
+        if src_masks is None:
+            src_masks = torch.ones(targets.shape[0], targets.shape[-1]).to(targets.device)
         # evaluate with the target speaker only: [bs, n_time, 1]
         if self.first_channel_only:
             est_targets = est_targets[:, :, 0].unsqueeze(-1)
             targets = targets[:, :, 0].unsqueeze(-1)
+            # [bs, 1]
+            src_masks = src_masks[:, 0].unsqueeze(-1)
         est_targets = est_targets.permute(0, 2, 1).contiguous()
         targets = targets.permute(0, 2, 1).contiguous()
         if self.zero_mean:
@@ -81,6 +86,7 @@ class MultiSrcNegSDR(_Loss):
         pair_wise_sdr = torch.sum(scaled_targets ** 2, dim=2) / (
             torch.sum(e_noise ** 2, dim=2) + self.EPS
         )
+        pair_wise_sdr = src_masks * pair_wise_sdr
         if self.take_log:
             pair_wise_sdr = 10 * torch.log10(pair_wise_sdr + self.EPS)
         return -torch.mean(pair_wise_sdr, dim=-1).mean()

@@ -94,12 +94,13 @@ class Separation(sb.Brain):
 
         return est_source, targets, dvec
 
-    def compute_objectives(self, predictions, targets, enr_emb, stage):
+    def compute_objectives(self, predictions, targets, enr_emb, src_masks, stage):
         """Computes the sinr loss
             args:
                 predictions: [bs, L, nsrc]
                 targets: [bs, L, nsrc]
                 enr_emb: [bs, D]
+                src_masks: [bs, D]
         """
         output_dict = {}
         if stage == sb.Stage.TRAIN:
@@ -111,7 +112,7 @@ class Separation(sb.Brain):
 
         for loss_nm, loss_fn in loss_nm_fn_dict.items():
             if loss_nm in ['si-snr']:
-                output_dict[loss_nm] = loss_fn(targets, predictions)
+                output_dict[loss_nm] = loss_fn(targets, predictions, src_masks)
             elif loss_nm in ['triplet']:
                 # [bs, D]
                 s1_emb = self.hparams.Embedder(predictions[:, :, 0])
@@ -130,6 +131,8 @@ class Separation(sb.Brain):
         mixture = batch.mix_sig
         targets = [batch.s1_sig, batch.s2_sig]
         enrollment = batch.enr_sig
+        src_masks = torch.cat([batch.s1_clean.data, batch.s2_clean.data], dim=-1)
+        src_masks = src_masks.to(self.device)
 
         if self.hparams.num_spks == 3:
             targets.append(batch.s3_sig)
@@ -139,7 +142,7 @@ class Separation(sb.Brain):
                 predictions, targets, enr_emb = self.compute_forward(
                     mixture, enrollment, targets, sb.Stage.TRAIN
                 )
-                loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, sb.Stage.TRAIN)
+                loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, src_masks, sb.Stage.TRAIN)
 
                 # hard threshold the easy dataitems
                 if self.hparams.threshold_byloss:
@@ -175,7 +178,7 @@ class Separation(sb.Brain):
             predictions, targets, enr_emb = self.compute_forward(
                 mixture, enrollment, targets, sb.Stage.TRAIN
             )
-            loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, sb.Stage.TRAIN)
+            loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, src_masks, sb.Stage.TRAIN)
 
             if self.hparams.threshold_byloss:
                 th = self.hparams.threshold
@@ -247,7 +250,7 @@ class Separation(sb.Brain):
 
         with torch.no_grad():
             predictions, targets, enr_emb = self.compute_forward(mixture, enrollment, targets, stage)
-            loss, _ = self.compute_objectives(predictions, targets, enr_emb, stage)
+            loss, _ = self.compute_objectives(predictions, targets, enr_emb, None, stage)
 
         # Manage logging with wandb
         if stage == sb.Stage.VALID and self.hparams.use_wandb and self.step <= self.hparams.log_audio_limit:
@@ -426,7 +429,7 @@ class Separation(sb.Brain):
                         )
 
                     # Compute SI-SNR
-                    sisnr, _ = self.compute_objectives(predictions, targets, enr_emb, sb.Stage.TEST)
+                    sisnr, _ = self.compute_objectives(predictions, targets, enr_emb, None, sb.Stage.TEST)
 
                     # Compute SI-SNR improvement
                     mixture_signal = torch.stack(
@@ -434,7 +437,7 @@ class Separation(sb.Brain):
                     )
                     mixture_signal = mixture_signal.to(targets.device)
                     sisnr_baseline, _ = self.compute_objectives(
-                        mixture_signal, targets, enr_emb, sb.Stage.TEST
+                        mixture_signal, targets, enr_emb, None, sb.Stage.TEST
                     )
                     sisnr_i = sisnr - sisnr_baseline
 
@@ -577,14 +580,14 @@ if __name__ == "__main__":
         overrides=overrides,
     )
 
-    # Check if wsj0_tr is set with dynamic mixing
-    if hparams["dynamic_mixing"] and not os.path.exists(
-        hparams["base_folder_dm"]
-    ):
-        print(
-            "Please, specify a valid base_folder_dm folder when using dynamic mixing"
-        )
-        sys.exit(1)
+    #  # Check if wsj0_tr is set with dynamic mixing
+    #  if hparams["dynamic_mixing"] and not os.path.exists(
+    #      hparams["base_folder_dm"]
+    #  ):
+    #      print(
+    #          "Please, specify a valid base_folder_dm folder when using dynamic mixing"
+    #      )
+    #      sys.exit(1)
 
     # Data preparation
     from data.prepare_data import prepare_dummy_csv  # noqa
