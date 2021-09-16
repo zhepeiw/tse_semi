@@ -178,8 +178,8 @@ def dynamic_mixing_prep(hparams, part):
         )
     loader = torch.utils.data.DataLoader(
         ds,
-        batch_size=hparams["dataloader_opts"]["batch_size"],
-        num_workers=hparams["dataloader_opts"]["num_workers"],
+        batch_size=hparams["{}_dataloader_opts".format(part)]["batch_size"],
+        num_workers=hparams["{}_dataloader_opts".format(part)]["num_workers"],
         collate_fn=PaddedBatch,
         worker_init_fn=lambda x: np.random.seed(
             int.from_bytes(os.urandom(4), "little") + x

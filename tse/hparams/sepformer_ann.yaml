@@ -22,9 +22,19 @@ data_folder: '/mnt/data1/Speech/wsj_tse'
 
 # base_folder_dm: '/mnt/nvme/Speech/librispeech/train-clean-360/train-clean-360/'
 # base_folder_dm_ext: 'flac'
-base_folder_dm: '/mnt/data1/wsj0.8k/si_tr_s/'
-base_folder_dm_ext: 'wav'
-overfit_utt: null
+# base_folder_dm: '/mnt/data/wsj0.8k/si_tr_s/'
+# base_folder_dm_ext: 'wav'
+# overfit_utt: null
+#
+base_folder_dm_info_list:
+  - path: '/mnt/data1/wsj0.8k/si_tr_s/'
+    ext: 'wav'
+    type: 'clean'
+  - path: '/mnt/data1/Speech/VoxCeleb1/dev_wav/'
+    ext: 'wav'
+    type: 'unclean'
+
+data_clean_prob: 1.
 
 time_stamp: placeholder_stamp
 
@@ -50,7 +60,7 @@ sample_rate: 8000
 
 # Training parameters
 N_epochs: 200
-batch_size: 1
+batch_size: 4
 lr: 0.00015
 clip_grad_norm: 5
 loss_upper_lim: 999999  # this is the upper limit for an acceptable loss
@@ -96,9 +106,17 @@ kernel_stride: 8
 
 # Dataloader options
 # Set num_workers: 0 on MacOS due to behavior of the multiprocessing library
-dataloader_opts:
+train_dataloader_opts:
     batch_size: !ref <batch_size>
     num_workers: 3
+
+valid_dataloader_opts:
+    batch_size: 1
+    num_workers: 3
+
+test_dataloader_opts:
+    batch_size: 1
+    num_workers: 0
 
 N_emb_dim: 256
 Embedder: !new:spid_modules.embedder.Embedder

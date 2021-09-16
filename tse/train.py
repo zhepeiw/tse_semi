@@ -405,7 +405,7 @@ class Separation(sb.Brain):
         csv_columns = ["snt_id", "sdr", "sdr_i", "si-snr", "si-snr_i"]
 
         test_loader = sb.dataio.dataloader.make_dataloader(
-            test_data, **self.hparams.dataloader_opts
+            test_data, **self.hparams.test_dataloader_opts
         )
 
         with open(save_file, "w") as results_csv:
@@ -641,8 +641,8 @@ if __name__ == "__main__":
             separator.hparams.epoch_counter,
             train_data,
             valid_data,
-            train_loader_kwargs=hparams["dataloader_opts"],
-            valid_loader_kwargs=hparams["dataloader_opts"],
+            train_loader_kwargs=hparams["train_dataloader_opts"],
+            valid_loader_kwargs=hparams["valid_dataloader_opts"],
         )
 
     # Eval
