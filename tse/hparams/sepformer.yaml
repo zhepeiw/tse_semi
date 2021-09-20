@@ -34,7 +34,7 @@ base_folder_dm_info_list:
     ext: 'wav'
     type: 'unclean'
 
-data_clean_prob: 1.
+data_clean_prob: .75
 
 time_stamp: placeholder_stamp
 
@@ -45,13 +45,14 @@ save_folder: !ref <output_folder>/save
 train_data: !ref <save_folder>/dummy.csv
 # valid_data: !ref <data_folder>/dev-clean-mix/seed123/meta.csv
 # test_data: !ref <data_folder>/test-clean-mix/seed123/meta.csv
-valid_data: !ref <data_folder>/mix_2_spk_cv/meta.csv
+# valid_data: !ref <data_folder>/mix_2_spk_cv/meta.csv
+valid_data: !ref <data_folder>/mix_2_spk_tt/meta.csv
 test_data: !ref <data_folder>/mix_2_spk_tt/meta.csv
 skip_prep: False
 
 
 # Experiment params
-auto_mix_prec: True # Set it to True for mixed precision
+auto_mix_prec: False # Set it to True for mixed precision
 test_only: False
 num_spks: 2 # set to 3 for wsj0-3mix
 progressbar: True
@@ -177,7 +178,7 @@ MaskNet: !new:sb_modules.dual_path_tse.Dual_Path_Model
     in_channels: !ref <N_encoder_out>
     out_channels: !ref <out_channels>
     emb_dim: !ref <N_emb_dim>
-    fusion_type: cat
+    fusion_type: add
     num_layers: 2
     K: 250
     intra_model: !ref <SBtfintra>
@@ -212,8 +213,8 @@ train_loss:
     si-snr: !new:losses.MultiSrcNegSDR
         sdr_type: sisdr
         first_channel_only: False
-    # triplet: !new:torch.nn.TripletMarginLoss
-    #     margin: 1.0
+    triplet: !new:torch.nn.TripletMarginLoss
+        margin: 1.0
 
 valid_loss: 
     si-snr: !new:losses.MultiSrcNegSDR
@@ -247,6 +248,10 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         # fusion: !ref <Fusion>
         counter: !ref <epoch_counter>
         lr_scheduler: !ref <lr_scheduler>
+
+# pretrain_checkpointer: null
+pretrain_checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: /mnt/data/zhepei/outputs/sb_tse/results/2021-09-06+22-03-11+seed_1234+sepformer_wsj_add/save
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>

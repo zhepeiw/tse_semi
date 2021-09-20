@@ -211,13 +211,13 @@ class Separation(sb.Brain):
 
         # additional training logging
         #  if self.hparams.use_wandb:
-            #  self.train_loss_buffer.append(loss.item())
-            #  if self.step % self.hparams.train_log_frequency == 0 and self.step > 1:
-            #      self.hparams.train_logger.log_stats(
-            #          stats_meta={"datapoints_seen": self.datapoints_seen},
-            #          train_stats={'buffer-si-snr': np.mean(self.train_loss_buffer)},
-            #      )
-            #      self.train_loss_buffer = []
+        #  self.train_loss_buffer.append(loss.item())
+        #  if self.step % self.hparams.train_log_frequency == 0 and self.step > 1:
+        #      self.hparams.train_logger.log_stats(
+        #          stats_meta={"datapoints_seen": self.datapoints_seen},
+        #          train_stats={'buffer-si-snr': np.mean(self.train_loss_buffer)},
+        #      )
+        #      self.train_loss_buffer = []
         if self.hparams.use_wandb:
             if len(loss_dict) > 1:
                 loss_dict['total_loss'] = loss
@@ -274,6 +274,7 @@ class Separation(sb.Brain):
         #  self.train_loss_buffer = []
         self.train_loss_buffer = {}
         self.valid_stats = {}
+        self.load_pretrain_checkpoint()
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of a epoch."""
@@ -544,6 +545,17 @@ class Separation(sb.Brain):
         }
         valid_stats = {key: wandb.Audio(array, sample_rate=self.hparams.sample_rate) for key, array in valid_stats.items()}
         return valid_stats
+
+    def load_pretrain_checkpoint(self):
+        if self.hparams.pretrain_checkpointer is not None:
+            best_ckpt = self.hparams.pretrain_checkpointer.find_checkpoint(
+                min_key='si-snr'
+            )
+            for module_key in ['encoder', 'decoder', 'masknet', 'embedder']:
+                param_file = best_ckpt.paramfiles[module_key]
+                sb.utils.checkpoints.torch_parameter_transfer(
+                    self.hparams.modules[module_key], param_file, self.device)
+                print('Recovering pretrained {} from {}'.format(module_key, param_file))
 
 
 if __name__ == "__main__":
