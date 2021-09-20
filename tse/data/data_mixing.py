@@ -114,8 +114,8 @@ def dynamic_mixing_prep(hparams, part):
                                      's1_clean', 's2_clean')
     def audio_pipeline(file_path):
         # first, decide type of each speaker
-        sp1_type = 'clean' if np.random.rand() <= hparams['data_clean_prob'] else 'unclean'
-        sp2_type = 'clean' if np.random.rand() <= hparams['data_clean_prob'] else 'unclean'
+        sp1_type = 'clean' if np.random.rand() < hparams['data_clean_prob'] else 'unclean'
+        sp2_type = 'clean' if np.random.rand() < hparams['data_clean_prob'] else 'unclean'
         for attempts in range(10):
             # in case of IO failure
             try:
