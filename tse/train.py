@@ -391,7 +391,7 @@ class Separation(sb.Brain):
     def save_results(self, test_data):
         """This script computes the SDR and SI-SNR metrics and saves
         them into a csv file"""
-
+        self.on_evaluate_start(min_key='si-snr')
         # This package is required for SDR computation
         from mir_eval.separation import bss_eval_sources
 
@@ -399,11 +399,12 @@ class Separation(sb.Brain):
         save_file = os.path.join(self.hparams.output_folder, "test_results.csv")
 
         # Variable init
-        all_sdrs = []
-        all_sdrs_i = []
+        #  all_sdrs = []
+        #  all_sdrs_i = []
         all_sisnrs = []
         all_sisnrs_i = []
-        csv_columns = ["snt_id", "sdr", "sdr_i", "si-snr", "si-snr_i"]
+        #  csv_columns = ["snt_id", "sdr", "sdr_i", "si-snr", "si-snr_i"]
+        csv_columns = ["snt_id", "si-snr", "si-snr_i"]
 
         test_loader = sb.dataio.dataloader.make_dataloader(
             test_data, **self.hparams.test_dataloader_opts
@@ -418,15 +419,16 @@ class Separation(sb.Brain):
                 for i, batch in enumerate(t):
 
                     # Apply Separation
-                    mixture, mix_len = batch.mix_sig
+                    mixture = batch.mix_sig
                     snt_id = batch.id
                     targets = [batch.s1_sig, batch.s2_sig]
+                    enrollment = batch.enr_sig
                     if self.hparams.num_spks == 3:
                         targets.append(batch.s3_sig)
 
                     with torch.no_grad():
                         predictions, targets, enr_emb = self.compute_forward(
-                            batch.mix_sig, targets, sb.Stage.TEST
+                            mixture, enrollment, targets, sb.Stage.TEST
                         )
 
                     # Compute SI-SNR
@@ -434,7 +436,7 @@ class Separation(sb.Brain):
 
                     # Compute SI-SNR improvement
                     mixture_signal = torch.stack(
-                        [mixture] * self.hparams.num_spks, dim=-1
+                        [mixture.data] * self.hparams.num_spks, dim=-1
                     )
                     mixture_signal = mixture_signal.to(targets.device)
                     sisnr_baseline, _ = self.compute_objectives(
@@ -442,39 +444,39 @@ class Separation(sb.Brain):
                     )
                     sisnr_i = sisnr - sisnr_baseline
 
-                    # Compute SDR
-                    sdr, _, _, _ = bss_eval_sources(
-                        targets[0].t().cpu().numpy(),
-                        predictions[0].t().detach().cpu().numpy(),
-                    )
-
-                    sdr_baseline, _, _, _ = bss_eval_sources(
-                        targets[0].t().cpu().numpy(),
-                        mixture_signal[0].t().detach().cpu().numpy(),
-                    )
-
-                    sdr_i = sdr.mean() - sdr_baseline.mean()
+                    #  # Compute SDR
+                    #  sdr, _, _, _ = bss_eval_sources(
+                    #      targets[0].t().cpu().numpy(),
+                    #      predictions[0].t().detach().cpu().numpy(),
+                    #  )
+                    #
+                    #  sdr_baseline, _, _, _ = bss_eval_sources(
+                    #      targets[0].t().cpu().numpy(),
+                    #      mixture_signal[0].t().detach().cpu().numpy(),
+                    #  )
+                    #
+                    #  sdr_i = sdr.mean() - sdr_baseline.mean()
 
                     # Saving on a csv file
                     row = {
                         "snt_id": snt_id[0],
-                        "sdr": sdr.mean(),
-                        "sdr_i": sdr_i,
+                        #  "sdr": sdr.mean(),
+                        #  "sdr_i": sdr_i,
                         "si-snr": -sisnr.item(),
                         "si-snr_i": -sisnr_i.item(),
                     }
                     writer.writerow(row)
 
                     # Metric Accumulation
-                    all_sdrs.append(sdr.mean())
-                    all_sdrs_i.append(sdr_i.mean())
+                    #  all_sdrs.append(sdr.mean())
+                    #  all_sdrs_i.append(sdr_i.mean())
                     all_sisnrs.append(-sisnr.item())
                     all_sisnrs_i.append(-sisnr_i.item())
 
                 row = {
                     "snt_id": "avg",
-                    "sdr": np.array(all_sdrs).mean(),
-                    "sdr_i": np.array(all_sdrs_i).mean(),
+                    #  "sdr": np.array(all_sdrs).mean(),
+                    #  "sdr_i": np.array(all_sdrs_i).mean(),
                     "si-snr": np.array(all_sisnrs).mean(),
                     "si-snr_i": np.array(all_sisnrs_i).mean(),
                 }
@@ -482,8 +484,8 @@ class Separation(sb.Brain):
 
         logger.info("Mean SISNR is {}".format(np.array(all_sisnrs).mean()))
         logger.info("Mean SISNRi is {}".format(np.array(all_sisnrs_i).mean()))
-        logger.info("Mean SDR is {}".format(np.array(all_sdrs).mean()))
-        logger.info("Mean SDRi is {}".format(np.array(all_sdrs_i).mean()))
+        #  logger.info("Mean SDR is {}".format(np.array(all_sdrs).mean()))
+        #  logger.info("Mean SDRi is {}".format(np.array(all_sdrs_i).mean()))
 
     def save_audio(self, snt_id, mixture, targets, predictions):
         "saves the test audio (mixture, targets, and estimated sources) on disk"
@@ -658,5 +660,5 @@ if __name__ == "__main__":
         )
 
     # Eval
-    separator.evaluate(test_data, min_key="si-snr")
-    #  separator.save_results(test_data)
+    #  separator.evaluate(test_data, min_key="si-snr")
+    separator.save_results(test_data)
