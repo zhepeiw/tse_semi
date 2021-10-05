@@ -17,6 +17,56 @@ import os
 import pdb
 
 
+def static_data_prep(hparams, part):
+    assert part in ['train', 'valid', 'test']
+    ds = sb.dataio.dataset.DynamicItemDataset.from_csv(
+        csv_path=hparams['{}_data'.format(part)]
+    )
+    target_sr = hparams['sample_rate']
+    dur = hparams['training_signal_len'] // target_sr
+    # setting pipelines
+    @sb.utils.data_pipeline.takes('s1_path', 's2_path', 's1_gain', 's2_gain')
+    @sb.utils.data_pipeline.provides('mix_sig', 's1_sig', 's2_sig')
+    def audio_pipeline(s1_path, s2_path, s1_gain, s2_gain):
+        s1_sig = read_and_resample(s1_path, target_sr)
+        s1_gain = float(s1_gain)
+        s1_sig = rescale(s1_sig, torch.tensor(len(s1_sig)), s1_gain, scale='dB')
+        s2_sig = read_and_resample(s2_path, target_sr)
+        s2_gain = float(s2_gain)
+        s2_sig = rescale(s2_sig, torch.tensor(len(s2_sig)), s2_gain, scale='dB')
+        # compute mixture
+        min_len = min(len(s1_sig), len(s2_sig))
+        s1_sig = s1_sig[:min_len]
+        s2_sig = s2_sig[:min_len]
+        mix_sig = s1_sig + s2_sig
+        # scale again to handle all signals
+        sources = torch.stack([s1_sig, s2_sig], dim=0)
+        max_amp = max(
+            torch.abs(mix_sig).max().item(),
+            *[x.item() for x in torch.abs(sources).max(dim=-1)[0]],
+        )
+        mix_scaling = 1 / max_amp * 0.9
+        sources = mix_scaling * sources
+        mix_sig = mix_scaling * mix_sig
+        yield mix_sig
+        for i in range(sources.shape[0]):
+            yield sources[i]
+
+    @sb.utils.data_pipeline.takes('enr_path')
+    @sb.utils.data_pipeline.provides('enr_sig')
+    def enr_pipeline(file_path):
+        sig = read_and_resample(file_path, target_sr)
+        return sig
+
+    sb.dataio.dataset.add_dynamic_item([ds], audio_pipeline)
+    sb.dataio.dataset.add_dynamic_item([ds], enr_pipeline)
+    # adding keys
+    sb.dataio.dataset.set_output_keys(
+            [ds], ["id", "mix_sig", "s1_sig", "s2_sig", "enr_sig"]
+        )
+    return ds
+
+
 def static_mixing_prep(hparams, part):
     assert part in ['train', 'valid', 'test']
     ds = sb.dataio.dataset.DynamicItemDataset.from_csv(

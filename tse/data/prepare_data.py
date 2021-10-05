@@ -276,6 +276,46 @@ def create_wsj_csv(datapath, savepath):
                 writer.writerow(row)
 
 
+def create_wsj_tse_csv(datapath, txtpath, savepath):
+    '''
+        args:
+            datapath: path to the wsj directory containing 'si_et_05'
+            txtpath
+            savepath
+
+    '''
+    all_data = []
+    with open(txtpath, 'r') as f:
+        idx = 0
+        line = f.readline()
+        while line:
+            info_list = line.strip().split(' ')
+            # read each signal and scale
+            s1_file = info_list[0].replace('.wv1', '.wav')[len('wsj0/'):]
+            s1_source_path = os.path.join(datapath, s1_file)
+            s1_gain = float(info_list[1])
+            s2_file = info_list[2].replace('.wv1', '.wav')[len('wsj0/'):]
+            s2_source_path = os.path.join(datapath, s2_file)
+            s2_gain = float(info_list[3])
+            # read enrollment
+            enr_file = info_list[4].replace('.wv1', '.wav')[len('wsj0/'):]
+            enr_source_path = os.path.join(datapath, enr_file)
+            # csv entry
+            all_data.append({
+                'ID': idx,
+                's1_path': s1_source_path,
+                's2_path': s2_source_path,
+                's1_gain': s1_gain,
+                's2_gain': s2_gain,
+                'enr_path': enr_source_path,
+            })
+            # next
+            line = f.readline()
+            idx += 1
+    df = pd.DataFrame(all_data)
+    df.to_csv(savepath, index=False)
+
+
 if __name__ == '__main__':
     seed = 123
     hyp = {

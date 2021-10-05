@@ -620,13 +620,23 @@ if __name__ == "__main__":
     #              "savepath": hparams['save_folder'],
     #          }
     #      )
+    from data.prepare_data import create_wsj_tse_csv
+    for part in ['valid', 'test']:
+        run_on_main(
+            create_wsj_tse_csv,
+            kwargs={
+                "datapath": hparams['data_folder'],
+                "txtpath": hparams['{}_txtpath'.format(part)],
+                "savepath": hparams['{}_data'.format(part)],
+            }
+        )
 
     # Create dataset objects
     if hparams["dynamic_mixing"]:
-        from data.data_mixing import dynamic_mixing_prep, static_mixing_prep
+        from data.data_mixing import dynamic_mixing_prep, static_data_prep
         train_data = dynamic_mixing_prep(hparams, 'train')
-        valid_data = static_mixing_prep(hparams, 'valid')
-        test_data = static_mixing_prep(hparams, 'test')
+        valid_data = static_data_prep(hparams, 'valid')
+        test_data = static_data_prep(hparams, 'test')
     else:
         raise NotImplementedError
 
@@ -660,5 +670,5 @@ if __name__ == "__main__":
         )
 
     # Eval
-    #  separator.evaluate(test_data, min_key="si-snr")
-    separator.save_results(test_data)
+    separator.evaluate(test_data, min_key="si-snr")
+    #  separator.save_results(test_data)
