@@ -140,13 +140,12 @@ def dynamic_mixing_prep(hparams, part):
                     s1_gain + random.normalvariate(-2.51, 2.66), -45, 0
                 )
         s2_sig = rescale(s2_sig, torch.tensor(len(s2_sig)), s2_gain, scale='dB')
-        noise_gain = np.clip(
-                    s1_gain + random.uniform(-6, 3), -45, 0
-                )
-        noise_sig = rescale(noise_sig, torch.tensor(len(noise_sig)), noise_gain, scale='dB')
-        mix_sig = s1_sig + s2_sig + noise_sig
+        sources = torch.stack([s1_sig, s2_sig], dim=0)
+        mean_source_lvl = sources.abs().mean()
+        mean_noise_lvl = noise_sig.abs().mean()
+        noise_sig = (mean_source_lvl / mean_noise_lvl) * noise_sig
+        mix_sig = torch.sum(sources, 0) + noise_sig
         # scale again to handle all signals
-        sources = torch.stack([s1_sig, s2_sig, noise_sig], dim=0)
         max_amp = max(
             torch.abs(mix_sig).max().item(),
             *[x.item() for x in torch.abs(sources).max(dim=-1)[0]],
@@ -154,9 +153,11 @@ def dynamic_mixing_prep(hparams, part):
         mix_scaling = 1 / max_amp * 0.9
         sources = mix_scaling * sources
         mix_sig = mix_scaling * mix_sig
+        noise_sig = mix_scaling * noise_sig
         yield mix_sig
         for i in range(sources.shape[0]):
             yield sources[i]
+        yield noise_sig
         yield enr_sig
         # clean flags
         yield torch.ones((1,)) if sp1_type == 'clean' else torch.zeros((1,))

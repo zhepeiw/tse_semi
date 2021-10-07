@@ -18,7 +18,7 @@ __set_cuda_seed: !apply:torch.cuda.manual_seed_all [!ref <seed>]
 # e.g. '/yourpath/wsj0-mix/2speakers'
 # end with 2speakers for wsj0-2mix or 3speakers for wsj0-3mix
 # data_folder: '/mnt/data/Speech/librispeech_tse'
-data_folder: '/mnt/data1/Speech/wsj_tse'
+data_folder: '/mnt/data1/wsj0.8k'
 
 # base_folder_dm: '/mnt/nvme/Speech/librispeech/train-clean-360/train-clean-360/'
 # base_folder_dm_ext: 'flac'
@@ -43,11 +43,10 @@ output_folder: !ref /mnt/data1/zhepei/outputs/sb_tse/results/<time_stamp>+seed_<
 train_log: !ref <output_folder>/train_log.txt
 save_folder: !ref <output_folder>/save
 train_data: !ref <save_folder>/dummy.csv
-# valid_data: !ref <data_folder>/dev-clean-mix/seed123/meta.csv
-# test_data: !ref <data_folder>/test-clean-mix/seed123/meta.csv
-# valid_data: !ref <data_folder>/mix_2_spk_cv/meta.csv
-valid_data: !ref <data_folder>/mix_2_spk_tt/meta.csv
-test_data: !ref <data_folder>/mix_2_spk_tt/meta.csv
+valid_txtpath: /mnt/data1/Speech/wsj_tse/mix_2_spk_tt_extr.txt
+valid_data: !ref <save_folder>/wsj_tse_cv.csv
+test_txtpath: /mnt/data1/Speech/wsj_tse/mix_2_spk_tt_extr.txt
+test_data: !ref <save_folder>/wsj_tse_tt.csv
 skip_prep: False
 
 
@@ -61,7 +60,7 @@ sample_rate: 8000
 
 # Training parameters
 N_epochs: 200
-batch_size: 4
+batch_size: 1
 lr: 0.00015
 clip_grad_norm: 5
 loss_upper_lim: 999999  # this is the upper limit for an acceptable loss
@@ -224,9 +223,10 @@ valid_loss:
 test_loss: !ref <valid_loss>
 
 lr_scheduler: !new:speechbrain.nnet.schedulers.ReduceLROnPlateau
+    lr_min: 0.000001
     factor: 0.5
-    patience: 5
-    dont_halve_until_epoch: 120
+    patience: 2
+    dont_halve_until_epoch: 85
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <N_epochs>
