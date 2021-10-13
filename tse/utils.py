@@ -1,4 +1,5 @@
 import ruamel.yaml
+import speechbrain as sb
 from speechbrain.utils.train_logger import TrainLogger
 import pdb
 
@@ -43,3 +44,31 @@ class MyWandBLogger(TrainLogger):
             self.run.log({**logs, **stats_meta}, step=step)
         else:
             self.run.log({**logs, **stats_meta})
+
+
+@sb.utils.checkpoints.register_checkpoint_hooks
+class DatapointCounter:
+    """
+        A counter which can save the number of datapoints the model has seen
+    """
+    def __init__(self):
+        self.current = 0
+
+    def update(self, batch_size):
+        self.current += batch_size
+
+    @sb.utils.checkpoints.mark_as_saver
+    def _save(self, path):
+        with open(path, "w") as fo:
+            fo.write(str(self.current))
+
+    @sb.utils.checkpoints.mark_as_loader
+    def _recover(self, path, end_of_epoch=True, device=None):
+        # NOTE: end_of_epoch = True by default so that when
+        #  loaded in parameter transfer, this starts a new epoch.
+        #  However, parameter transfer to EpochCounter should
+        #  probably never be used really.
+        del device  # Not used.
+        del end_of_epoch
+        with open(path) as fi:
+            self.current = int(fi.read())

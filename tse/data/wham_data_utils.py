@@ -87,6 +87,7 @@ def dynamic_mixing_prep(hparams, part):
     #      print('Overfitting dataset with size {}'.format(hparams['overfit_utt']))
     #      file_list = random.sample(file_list, hparams['overfit_utt'])
     noise_files = get_wham_noise_filenames(hparams)
+    info_dict.update(build_info_dict(noise_files))
     # setting pipelines
     @sb.utils.data_pipeline.takes('mix_path')
     @sb.utils.data_pipeline.provides('mix_sig', 's1_sig', 's2_sig', 'noise_sig',
@@ -128,8 +129,8 @@ def dynamic_mixing_prep(hparams, part):
         noise_path = np.random.choice(noise_files, 1, replace=False)[0]
         noise_sig = read_wav_tensor(
             noise_path,
-            int(info_dict[enr_path]['length']),
-            int(info_dict[enr_path]['sr']),
+            int(info_dict[noise_path]['length']),
+            int(info_dict[noise_path]['sr']),
             dur,
             target_sr
         )

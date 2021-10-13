@@ -1,14 +1,15 @@
 #!/usr/bin/env/python3
-"""Recipe for training a neural speech separation system on wsjmix the
-dataset. The system employs an encoder, a decoder, and a masking network.
+"""Recipe for training a neural speech separation system on WHAM! and WHAMR!
+datasets. The system employs an encoder, a decoder, and a masking network.
+
 To run this recipe, do the following:
-> python train.py hparams/sepformer.yaml
-> python train.py hparams/dualpath_rnn.yaml
-> python train.py hparams/convtasnet.yaml
+> python train.py hparams/sepformer-wham.yaml --data_folder /your_path/wham_original
+> python train.py hparams/sepformer-whamr.yaml --data_folder /your_path/whamr
+
 The experiment file is flexible enough to support different neural
 networks. By properly changing the parameter files, you can try
-different architectures. The script supports both wsj2mix and
-wsj3mix.
+different architectures.
+
 Authors
  * Cem Subakan 2020
  * Mirco Ravanelli 2020
@@ -19,7 +20,6 @@ Authors
 
 import os
 import sys
-sys.path.append('../')
 import torch
 import torch.nn.functional as F
 import torchaudio
@@ -60,7 +60,15 @@ class Separation(sb.Brain):
                 if self.hparams.use_speedperturb or self.hparams.use_rand_shift:
                     mix, targets = self.add_speed_perturb(targets, mix_lens)
 
-                    mix = targets.sum(-1)
+                    if "whamr" in self.hparams.data_folder:
+                        targets_rev = [
+                            self.hparams.reverb(targets[:, :, i], None)
+                            for i in range(self.hparams.num_spks)
+                        ]
+                        targets_rev = torch.stack(targets_rev, dim=-1)
+                        mix = targets_rev.sum(-1)
+                    else:
+                        mix = targets.sum(-1)
 
                     noise = noise.to(self.device)
                     len_noise = noise.shape[1]
@@ -71,19 +79,19 @@ class Separation(sb.Brain):
                     mix = mix[:, :min_len] + noise[:, :min_len]
 
                     # fix the length of targets also
+                    noise = noise[:, :min_len]
                     targets = targets[:, :min_len, :]
-
 
                 if self.hparams.use_wavedrop:
                     mix = self.hparams.wavedrop(mix, mix_lens)
 
                 if self.hparams.limit_training_signal_len:
-                    mix, targets = self.cut_signals(mix, targets)
+                    mix, targets, noise = self.cut_signals(mix, targets, noise)
 
         # Separation
         mix_w = self.hparams.Encoder(mix)
-        dvec = self.hparams.Embedder(enrollment)
-        est_mask = self.hparams.MaskNet(mix_w, dvec)
+        emb = self.hparams.Embedder(enrollment)
+        est_mask = self.hparams.MaskNet(mix_w, emb)
         mix_w = torch.stack([mix_w] * self.hparams.num_spks)
         sep_h = mix_w * est_mask
 
@@ -104,7 +112,7 @@ class Separation(sb.Brain):
         else:
             est_source = est_source[:, :T_origin, :]
 
-        return est_source, targets, dvec
+        return est_source, targets, noise, emb
 
     def compute_objectives(self, predictions, targets, enr_emb, src_masks, stage):
         """Computes the sinr loss
@@ -135,7 +143,6 @@ class Separation(sb.Brain):
         for loss_nm, loss_val in output_dict.items():
             loss += self.hparams.loss_lambdas.get(loss_nm, 1.) * loss_val
         return loss, output_dict
-        #  return self.hparams.loss(targets, predictions)
 
     def fit_batch(self, batch):
         """Trains one batch"""
@@ -147,14 +154,14 @@ class Separation(sb.Brain):
         src_masks = torch.cat([batch.s1_clean.data, batch.s2_clean.data], dim=-1)
         src_masks = src_masks.to(self.device)
 
-        if self.hparams.num_spks == 3:
-            targets.append(batch.s3_sig)
-
         if self.hparams.auto_mix_prec:
             with autocast():
-                predictions, targets, enr_emb = self.compute_forward(
+                predictions, targets, noise, enr_emb = self.compute_forward(
                     mixture, enrollment, targets, sb.Stage.TRAIN, noise
                 )
+                # combine noise to the residual channel
+                with torch.no_grad():
+                    targets[:, :, 1] += noise.to(targets.device)
                 loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, src_masks, sb.Stage.TRAIN)
 
                 # hard threshold the easy dataitems
@@ -177,8 +184,8 @@ class Separation(sb.Brain):
                     )
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
-                # update datapoints info
-                self.datapoints_seen += mixture.data.shape[0]
+                # wandb logging: update datapoints info
+                self.hparams.datapoint_counter.update(mixture.data.shape[0])
             else:
                 self.nonfinite_count += 1
                 logger.info(
@@ -188,9 +195,12 @@ class Separation(sb.Brain):
                 )
                 loss.data = torch.tensor(0).to(self.device)
         else:
-            predictions, targets, enr_emb = self.compute_forward(
+            predictions, targets, noise, enr_emb = self.compute_forward(
                 mixture, enrollment, targets, sb.Stage.TRAIN, noise
             )
+            # combine noise to the residual channel
+            with torch.no_grad():
+                targets[:, :, 1] += noise
             loss, loss_dict = self.compute_objectives(predictions, targets, enr_emb, src_masks, sb.Stage.TRAIN)
 
             if self.hparams.threshold_byloss:
@@ -210,8 +220,8 @@ class Separation(sb.Brain):
                         self.modules.parameters(), self.hparams.clip_grad_norm
                     )
                 self.optimizer.step()
-                # update datapoints info
-                self.datapoints_seen += mixture.data.shape[0]
+                # wandb logging: update datapoints info
+                self.hparams.datapoint_counter.update(mixture.data.shape[0])
             else:
                 self.nonfinite_count += 1
                 logger.info(
@@ -222,15 +232,7 @@ class Separation(sb.Brain):
                 loss.data = torch.tensor(0).to(self.device)
         self.optimizer.zero_grad()
 
-        # additional training logging
-        #  if self.hparams.use_wandb:
-        #  self.train_loss_buffer.append(loss.item())
-        #  if self.step % self.hparams.train_log_frequency == 0 and self.step > 1:
-        #      self.hparams.train_logger.log_stats(
-        #          stats_meta={"datapoints_seen": self.datapoints_seen},
-        #          train_stats={'buffer-si-snr': np.mean(self.train_loss_buffer)},
-        #      )
-        #      self.train_loss_buffer = []
+        # wandb logging
         if self.hparams.use_wandb:
             if len(loss_dict) > 1:
                 loss_dict['total_loss'] = loss
@@ -240,8 +242,7 @@ class Separation(sb.Brain):
                 self.train_loss_buffer[loss_nm].append(loss_val.item())
             if self.step % self.hparams.train_log_frequency == 0 and self.step > 1:
                 self.hparams.train_logger.log_stats(
-                    stats_meta={"datapoints_seen": self.datapoints_seen},
-                    #  train_stats={'buffer-si-snr': np.mean(self.train_loss_buffer)},
+                    stats_meta={"datapoints_seen": self.hparams.datapoint_counter.current},
                     train_stats = {'buffer-{}'.format(loss_nm): np.mean(loss_list) for loss_nm, loss_list in self.train_loss_buffer.items()}
                 )
                 self.train_loss_buffer = {}
@@ -257,15 +258,16 @@ class Separation(sb.Brain):
         snt_id = batch.id
         mixture = batch.mix_sig
         targets = [batch.s1_sig, batch.s2_sig]
+        noise = batch.noise_sig[0]
         enrollment = batch.enr_sig
-        if self.hparams.num_spks == 3:
-            targets.append(batch.s3_sig)
 
         with torch.no_grad():
-            predictions, targets, enr_emb = self.compute_forward(mixture, enrollment, targets, stage)
+            predictions, targets, _, enr_emb = self.compute_forward(mixture, enrollment, targets, stage)
+            # combine noise to the residual channel
+            targets[:, :, 1] += noise.to(targets.device)
             loss, _ = self.compute_objectives(predictions, targets, enr_emb, None, stage)
 
-        # Manage logging with wandb
+        # wandb logging
         if stage == sb.Stage.VALID and self.hparams.use_wandb and self.step <= self.hparams.log_audio_limit:
             valid_update_stats = self.get_log_audios(mixture.data, targets.data, predictions.data)
             self.valid_stats.update(valid_update_stats)
@@ -283,8 +285,8 @@ class Separation(sb.Brain):
 
     def on_fit_start(self):
         super().on_fit_start()
-        self.datapoints_seen = 0
-        #  self.train_loss_buffer = []
+        # wandb logging
+        #  self.datapoints_seen = 0
         self.train_loss_buffer = {}
         self.valid_stats = {}
         self.load_pretrain_checkpoint()
@@ -311,16 +313,24 @@ class Separation(sb.Brain):
                 # if we do not use the reducelronplateau, we do not change the lr
                 current_lr = self.hparams.optimizer.optim.param_groups[0]["lr"]
 
-            self.valid_stats.update(stage_stats)
-            self.hparams.train_logger.log_stats(
-                stats_meta={"epoch": epoch, "lr": current_lr, "datapoints_seen": self.datapoints_seen},
-                train_stats=self.train_stats,
-                valid_stats=self.valid_stats,
-            )
+            # wandb logging
+            if self.hparams.use_wandb:
+                self.valid_stats.update(stage_stats)
+                self.hparams.train_logger.log_stats(
+                    stats_meta={"epoch": epoch, "lr": current_lr, "datapoints_seen": self.hparams.datapoint_counter.current},
+                    train_stats=self.train_stats,
+                    valid_stats=self.valid_stats,
+                )
+                self.valid_stats = {}
+            else:
+                self.hparams.train_logger.log_stats(
+                    stats_meta={"epoch": epoch, "lr": current_lr},
+                    train_stats=self.train_stats,
+                    valid_stats=stage_stats,
+                )
             self.checkpointer.save_and_keep_only(
                 meta={"si-snr": stage_stats["si-snr"]}, min_keys=["si-snr"],
             )
-            self.valid_stats = {}
         elif stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
                 stats_meta={"Epoch loaded": self.hparams.epoch_counter.current},
@@ -377,8 +387,8 @@ class Separation(sb.Brain):
         mix = targets.sum(-1)
         return mix, targets
 
-    def cut_signals(self, mixture, targets):
-        """This function selects a random segment of a given length within the mixture.
+    def cut_signals(self, mixture, targets, noise):
+        """This function selects a random segment of a given length withing the mixture.
         The corresponding targets are selected accordingly"""
         randstart = torch.randint(
             0,
@@ -391,7 +401,10 @@ class Separation(sb.Brain):
         mixture = mixture[
             :, randstart : randstart + self.hparams.training_signal_len
         ]
-        return mixture, targets
+        noise = noise[
+            :, randstart : randstart + self.hparams.training_signal_len
+        ]
+        return mixture, targets, noise
 
     def reset_layer_recursively(self, layer):
         """Reinitializes the parameters of the neural networks"""
@@ -404,7 +417,7 @@ class Separation(sb.Brain):
     def save_results(self, test_data):
         """This script computes the SDR and SI-SNR metrics and saves
         them into a csv file"""
-        self.on_evaluate_start(min_key='si-snr')
+
         # This package is required for SDR computation
         from mir_eval.separation import bss_eval_sources
 
@@ -412,12 +425,11 @@ class Separation(sb.Brain):
         save_file = os.path.join(self.hparams.output_folder, "test_results.csv")
 
         # Variable init
-        #  all_sdrs = []
-        #  all_sdrs_i = []
+        all_sdrs = []
+        all_sdrs_i = []
         all_sisnrs = []
         all_sisnrs_i = []
-        #  csv_columns = ["snt_id", "sdr", "sdr_i", "si-snr", "si-snr_i"]
-        csv_columns = ["snt_id", "si-snr", "si-snr_i"]
+        csv_columns = ["snt_id", "sdr", "sdr_i", "si-snr", "si-snr_i"]
 
         test_loader = sb.dataio.dataloader.make_dataloader(
             test_data, **self.hparams.test_dataloader_opts
@@ -432,64 +444,67 @@ class Separation(sb.Brain):
                 for i, batch in enumerate(t):
 
                     # Apply Separation
-                    mixture = batch.mix_sig
+                    mixture, mix_len = batch.mix_sig
                     snt_id = batch.id
                     targets = [batch.s1_sig, batch.s2_sig]
+                    noise = batch.noise_sig[0]
                     enrollment = batch.enr_sig
                     if self.hparams.num_spks == 3:
                         targets.append(batch.s3_sig)
 
                     with torch.no_grad():
-                        predictions, targets, enr_emb = self.compute_forward(
-                            mixture, enrollment, targets, sb.Stage.TEST
+                        predictions, targets, noise, enr_emb = self.compute_forward(
+                            batch.mix_sig, enrollment, targets, sb.Stage.TEST
                         )
+                        # combine noise to the residual channel
+                        targets[:, :, 1] += noise.to(targets.device)
 
                     # Compute SI-SNR
                     sisnr, _ = self.compute_objectives(predictions, targets, enr_emb, None, sb.Stage.TEST)
 
                     # Compute SI-SNR improvement
                     mixture_signal = torch.stack(
-                        [mixture.data] * self.hparams.num_spks, dim=-1
+                        [mixture] * self.hparams.num_spks, dim=-1
                     )
                     mixture_signal = mixture_signal.to(targets.device)
-                    sisnr_baseline, _ = self.compute_objectives(
-                        mixture_signal, targets, enr_emb, None, sb.Stage.TEST
+                    sisnr_baseline = self.compute_objectives(
+                        mixture_signal, targets
                     )
                     sisnr_i = sisnr - sisnr_baseline
 
-                    #  # Compute SDR
-                    #  sdr, _, _, _ = bss_eval_sources(
-                    #      targets[0].t().cpu().numpy(),
-                    #      predictions[0].t().detach().cpu().numpy(),
-                    #  )
-                    #
-                    #  sdr_baseline, _, _, _ = bss_eval_sources(
-                    #      targets[0].t().cpu().numpy(),
-                    #      mixture_signal[0].t().detach().cpu().numpy(),
-                    #  )
-                    #
-                    #  sdr_i = sdr.mean() - sdr_baseline.mean()
+                    # Compute SDR
+                    sdr, _, _, _ = bss_eval_sources(
+                        targets[0].t().cpu().numpy(),
+                        predictions[0].t().detach().cpu().numpy(),
+                    )
+
+                    sdr_baseline, _, _, _ = bss_eval_sources(
+                        targets[0].t().cpu().numpy(),
+                        mixture_signal[0].t().detach().cpu().numpy(),
+                    )
+
+                    sdr_i = sdr.mean() - sdr_baseline.mean()
 
                     # Saving on a csv file
                     row = {
                         "snt_id": snt_id[0],
-                        #  "sdr": sdr.mean(),
-                        #  "sdr_i": sdr_i,
+                        "sdr": sdr.mean(),
+                        "sdr_i": sdr_i,
                         "si-snr": -sisnr.item(),
                         "si-snr_i": -sisnr_i.item(),
                     }
                     writer.writerow(row)
 
                     # Metric Accumulation
-                    #  all_sdrs.append(sdr.mean())
-                    #  all_sdrs_i.append(sdr_i.mean())
+                    all_sdrs.append(sdr.mean())
+                    all_sdrs_i.append(sdr_i.mean())
                     all_sisnrs.append(-sisnr.item())
                     all_sisnrs_i.append(-sisnr_i.item())
 
                 row = {
                     "snt_id": "avg",
-                    #  "sdr": np.array(all_sdrs).mean(),
-                    #  "sdr_i": np.array(all_sdrs_i).mean(),
+                    "sdr": np.array(all_sdrs).mean(),
+                    "sdr_i": np.array(all_sdrs_i).mean(),
                     "si-snr": np.array(all_sisnrs).mean(),
                     "si-snr_i": np.array(all_sisnrs_i).mean(),
                 }
@@ -497,8 +512,8 @@ class Separation(sb.Brain):
 
         logger.info("Mean SISNR is {}".format(np.array(all_sisnrs).mean()))
         logger.info("Mean SISNRi is {}".format(np.array(all_sisnrs_i).mean()))
-        #  logger.info("Mean SDR is {}".format(np.array(all_sdrs).mean()))
-        #  logger.info("Mean SDRi is {}".format(np.array(all_sdrs_i).mean()))
+        logger.info("Mean SDR is {}".format(np.array(all_sdrs).mean()))
+        logger.info("Mean SDRi is {}".format(np.array(all_sdrs_i).mean()))
 
     def save_audio(self, snt_id, mixture, targets, predictions):
         "saves the test audio (mixture, targets, and estimated sources) on disk"
@@ -619,7 +634,6 @@ if __name__ == "__main__":
                 "savepath": hparams['{}_data'.format(part)],
             }
         )
-
     # Create dataset objects
     from data.wham_data_utils import static_data_prep
     if hparams["dynamic_mixing"]:
