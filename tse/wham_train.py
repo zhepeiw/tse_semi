@@ -185,7 +185,8 @@ class Separation(sb.Brain):
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
                 # wandb logging: update datapoints info
-                self.hparams.datapoint_counter.update(mixture.data.shape[0])
+                self.datapoints_seen += mixture.data.shape[0]
+                #  self.hparams.datapoint_counter.update(mixture.data.shape[0])
             else:
                 self.nonfinite_count += 1
                 logger.info(
@@ -221,7 +222,8 @@ class Separation(sb.Brain):
                     )
                 self.optimizer.step()
                 # wandb logging: update datapoints info
-                self.hparams.datapoint_counter.update(mixture.data.shape[0])
+                self.datapoints_seen += mixture.data.shape[0]
+                #  self.hparams.datapoint_counter.update(mixture.data.shape[0])
             else:
                 self.nonfinite_count += 1
                 logger.info(
@@ -242,7 +244,8 @@ class Separation(sb.Brain):
                 self.train_loss_buffer[loss_nm].append(loss_val.item())
             if self.step % self.hparams.train_log_frequency == 0 and self.step > 1:
                 self.hparams.train_logger.log_stats(
-                    stats_meta={"datapoints_seen": self.hparams.datapoint_counter.current},
+                    #  stats_meta={"datapoints_seen": self.hparams.datapoint_counter.current},
+                    stats_meta={"datapoints_seen": self.datapoints_seen},
                     train_stats = {'buffer-{}'.format(loss_nm): np.mean(loss_list) for loss_nm, loss_list in self.train_loss_buffer.items()}
                 )
                 self.train_loss_buffer = {}
@@ -286,7 +289,7 @@ class Separation(sb.Brain):
     def on_fit_start(self):
         super().on_fit_start()
         # wandb logging
-        #  self.datapoints_seen = 0
+        self.datapoints_seen = 0
         self.train_loss_buffer = {}
         self.valid_stats = {}
         self.load_pretrain_checkpoint()
@@ -317,7 +320,8 @@ class Separation(sb.Brain):
             if self.hparams.use_wandb:
                 self.valid_stats.update(stage_stats)
                 self.hparams.train_logger.log_stats(
-                    stats_meta={"epoch": epoch, "lr": current_lr, "datapoints_seen": self.hparams.datapoint_counter.current},
+                    #  stats_meta={"epoch": epoch, "lr": current_lr, "datapoints_seen": self.hparams.datapoint_counter.current},
+                    stats_meta={"epoch": epoch, "lr": current_lr, "datapoints_seen": self.datapoints_seen},
                     train_stats=self.train_stats,
                     valid_stats=self.valid_stats,
                 )

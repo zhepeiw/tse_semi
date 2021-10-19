@@ -213,7 +213,7 @@ modules:
     masknet: !ref <MaskNet>
     embedder: !ref <Embedder>
 
-datapoint_counter: !new:utils.DatapointCounter
+# datapoint_counter: !new:utils.DatapointCounter
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
@@ -224,7 +224,7 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         embedder: !ref <Embedder>
         counter: !ref <epoch_counter>
         lr_scheduler: !ref <lr_scheduler>
-        datapoint_counter: !ref <datapoint_counter>
+        # datapoint_counter: !ref <datapoint_counter>
 
 pretrain_checkpointer: null
 # pretrain_checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
