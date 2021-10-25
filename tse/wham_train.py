@@ -134,10 +134,15 @@ class Separation(sb.Brain):
             if loss_nm in ['si-snr']:
                 output_dict[loss_nm] = loss_fn(targets, predictions, src_masks)
             elif loss_nm in ['triplet']:
+                # rescale predictions
+                # [bs, 1, 1]
+                prediction_scales = 0.9 / torch.amax(torch.abs(predictions),
+                                               dim=(1, 2), keepdim=True)
+                scaled_predictions = prediction_scales * predictions
                 # [bs, D]
-                s1_emb = self.hparams.Embedder(predictions[:, :, 0])
+                s1_emb = self.hparams.Embedder(scaled_predictions[:, :, 0])
                 # [bs , D]
-                s2_emb = self.hparams.Embedder(predictions[:, :, 1])
+                s2_emb = self.hparams.Embedder(scaled_predictions[:, :, 1])
                 output_dict[loss_nm] = loss_fn(enr_emb, s1_emb, s2_emb)
         loss = 0.
         for loss_nm, loss_val in output_dict.items():
