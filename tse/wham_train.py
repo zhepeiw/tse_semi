@@ -653,10 +653,15 @@ if __name__ == "__main__":
     valid_data = static_data_prep(hparams, 'valid')
     test_data = static_data_prep(hparams, 'test')
 
-    # Load pretrained model if pretrained_separator is present in the yaml
-    if "pretrained_separator" in hparams:
-        run_on_main(hparams["pretrained_separator"].collect_files)
-        hparams["pretrained_separator"].load_collected()
+    #  # Load pretrained model if pretrained_separator is present in the yaml
+    #  if "pretrained_separator" in hparams:
+    #      run_on_main(hparams["pretrained_separator"].collect_files)
+    #      hparams["pretrained_separator"].load_collected()
+
+    # load pretrained embedder
+    run_on_main(hparams["pretrainer"].collect_files)
+    hparams["pretrainer"].load_collected()
+    hparams["Embedder"].eval()
 
     # Brain class initialization
     separator = Separation(
