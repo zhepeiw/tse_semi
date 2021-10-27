@@ -18,38 +18,41 @@ __set_cuda_seed: !apply:torch.cuda.manual_seed_all [!ref <seed>]
 # the data folder for the wham dataset
 # needs to end with wham_original for the wham dataset
 # respecting this convention effects the code functionality
-data_folder: /mnt/data1/wham/wham_original
-wsj_folder: /mnt/data1/wsj0.8k
+data_folder: /mnt/data/wham/wham_original
+wsj_folder: /mnt/data/wsj0.8k
 
 # the path for wsj0/si_tr_s/ folder -- only needed if dynamic mixing is used
 # e.g. /yourpath/wsj0-processed/si_tr_s/
 ## you need to convert the original wsj0 to 8k
 # you can do this conversion with the script ../meta/preprocess_dynamic_mixing.py
-# base_folder_dm: /mnt/data1/wsj0.8k/si_tr_s/
+# base_folder_dm: /mnt/data/wsj0.8k/si_tr_s/
 base_folder_dm_info_list:
-  - path: '/mnt/data1/wsj0.8k/si_tr_s/'
+  - path: '/mnt/data/wsj0.8k/si_tr_s/'
     ext: 'wav'
     type: 'clean'
+  - path: '/mnt/train/VoxCeleb1/dev_wav/'
+    ext: 'wav'
+    type: 'unclean'
 
-data_clean_prob: 1.
+data_clean_prob: .75
 
 time_stamp: placeholder
 
-experiment_name: xformer-wham
-output_folder: !ref /mnt/data1/zhepei/outputs/sb_tse/results/<time_stamp>+seed_<seed>+<experiment_name>
+experiment_name: xformer-wham-pre
+output_folder: !ref /mnt/data/zhepei/outputs/sb_tse/results/<time_stamp>+seed_<seed>+<experiment_name>
 train_log: !ref <output_folder>/train_log.txt
 save_folder: !ref <output_folder>/save
 
 # the file names should start with whamr instead of whamorg
-train_txtpath: /mnt/data1/Speech/wsj_tse/mix_2_spk_tr_extr.txt
+train_txtpath: /mnt/data/Speech/wsj_tse/mix_2_spk_tr_extr.txt
 train_wham_folder: !ref <data_folder>/wav8k/min/tr
 train_data: !ref <save_folder>/wham_tse_tr.csv
-valid_txtpath: /mnt/data1/Speech/wsj_tse/mix_2_spk_tt_extr.txt
+valid_txtpath: /mnt/data/Speech/wsj_tse/mix_2_spk_tt_extr.txt
 valid_wham_folder: !ref <data_folder>/wav8k/min/tt
-valid_data: !ref <save_folder>/wsj_tse_cv.csv
-test_txtpath: /mnt/data1/Speech/wsj_tse/mix_2_spk_tt_extr.txt
+valid_data: !ref <save_folder>/wham_tse_cv.csv
+test_txtpath: /mnt/data/Speech/wsj_tse/mix_2_spk_tt_extr.txt
 test_wham_folder: !ref <data_folder>/wav8k/min/tt
-test_data: !ref <save_folder>/wsj_tse_tt.csv
+test_data: !ref <save_folder>/wham_tse_tt.csv
 skip_prep: False
 
 
@@ -128,7 +131,7 @@ Embedder: !new:spid_modules.embedder.Embedder
         embedder/lstm_hidden: 768
         embedder/num_layers: 3
         embedder/emb_dim: !ref <N_emb_dim>
-        embedder/pretrained_path: /mnt/data1/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/chkpt_100000.pt
+        embedder/pretrained_path: /mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/chkpt_100000.pt
         embedder/trainable: False
 
 # Specifying the network
@@ -188,8 +191,8 @@ train_loss:
     si-snr: !new:losses.MultiSrcNegSDR
         sdr_type: sisdr
         first_channel_only: False
-    # triplet: !new:torch.nn.TripletMarginLoss
-    #     margin: 1.0
+    triplet: !new:torch.nn.TripletMarginLoss
+        margin: 1.0
 
 valid_loss: 
     si-snr: !new:losses.MultiSrcNegSDR
@@ -226,9 +229,9 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         lr_scheduler: !ref <lr_scheduler>
         # datapoint_counter: !ref <datapoint_counter>
 
-pretrain_checkpointer: null
-# pretrain_checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
-#     checkpoints_dir: /mnt/data1/zhepei/outputs/sb_tse/results/2021-09-06+22-03-11+seed_1234+sepformer_wsj_add/save
+# pretrain_checkpointer: null
+pretrain_checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: /mnt/data/zhepei/outputs/sb_tse/results/2021-10-14+14-10-55+seed_1234+xformer-wham/save
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
