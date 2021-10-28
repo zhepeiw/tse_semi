@@ -114,16 +114,20 @@ class Separation(sb.Brain):
             if loss_nm in ['si-snr']:
                 output_dict[loss_nm] = loss_fn(targets, predictions, src_masks)
             elif loss_nm in ['triplet']:
+                # rescale predictions
+                # [bs, 1, 1]
+                prediction_scales = 0.9 / torch.amax(torch.abs(predictions),
+                                               dim=(1, 2), keepdim=True)
+                scaled_predictions = prediction_scales * predictions
                 # [bs, D]
-                s1_emb = self.hparams.Embedder(predictions[:, :, 0])
+                s1_emb = self.hparams.Embedder(scaled_predictions[:, :, 0])
                 # [bs , D]
-                s2_emb = self.hparams.Embedder(predictions[:, :, 1])
+                s2_emb = self.hparams.Embedder(scaled_predictions[:, :, 1])
                 output_dict[loss_nm] = loss_fn(enr_emb, s1_emb, s2_emb)
         loss = 0.
         for loss_nm, loss_val in output_dict.items():
             loss += self.hparams.loss_lambdas.get(loss_nm, 1.) * loss_val
         return loss, output_dict
-        #  return self.hparams.loss(targets, predictions)
 
     def fit_batch(self, batch):
         """Trains one batch"""
@@ -640,10 +644,15 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError
 
-    # Load pretrained model if pretrained_separator is present in the yaml
-    if "pretrained_separator" in hparams:
-        run_on_main(hparams["pretrained_separator"].collect_files)
-        hparams["pretrained_separator"].load_collected()
+    #  # Load pretrained model if pretrained_separator is present in the yaml
+    #  if "pretrained_separator" in hparams:
+    #      run_on_main(hparams["pretrained_separator"].collect_files)
+    #      hparams["pretrained_separator"].load_collected()
+
+    # load pretrained embedder
+    run_on_main(hparams["pretrainer"].collect_files)
+    hparams["pretrainer"].load_collected()
+    hparams["Embedder"].eval()
 
     # Brain class initialization
     separator = Separation(

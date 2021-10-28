@@ -74,7 +74,7 @@ loss_upper_lim: 999999  # this is the upper limit for an acceptable loss
 limit_training_signal_len: True
 # this is the length of sequences if we choose to limit
 # the signal length of training sequences
-training_signal_len: 38000
+training_signal_len: 40000
 
 # Set it to True to dynamically create mixtures at training time
 dynamic_mixing: True
@@ -131,7 +131,8 @@ Embedder: !new:spid_modules.embedder.Embedder
         embedder/lstm_hidden: 768
         embedder/num_layers: 3
         embedder/emb_dim: !ref <N_emb_dim>
-        embedder/pretrained_path: /mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/chkpt_100000.pt
+        embedder/pretrained_path: null
+        # embedder/pretrained_path: /mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/chkpt_100000.pt
         embedder/trainable: False
 
 # Specifying the network
@@ -247,3 +248,10 @@ wandb_logger:
     reinit: True
     yaml_config: hparams/sepformer_wham_ann.yaml
     resume: False
+
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+    collect_in: !ref <save_folder>
+    loadables:
+        embedding_model: !ref <Embedder>
+    paths:
+        embedding_model: /mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/embedder_100000.pt

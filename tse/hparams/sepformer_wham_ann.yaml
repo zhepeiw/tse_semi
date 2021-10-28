@@ -237,7 +237,7 @@ pretrain_checkpointer: null
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
 
-use_wandb: False
+use_wandb: True
 train_log_frequency: 100
 log_audio_limit: 3
 wandb_logger:
@@ -248,7 +248,6 @@ wandb_logger:
     reinit: True
     yaml_config: hparams/sepformer_wham_ann.yaml
     resume: False
-
 
 pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
     collect_in: !ref <save_folder>
