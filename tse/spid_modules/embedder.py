@@ -72,7 +72,7 @@ class Embedder(nn.Module):
                             hyp['embedder/emb_dim'])
         if hyp['embedder/pretrained_path'] is not None:
             print('Loading embedder checkpoint from {}'.format(hyp['embedder/pretrained_path']))
-            self.load_state_dict(torch.load(hyp['embedder/pretrained_path'])['embedder'])
+            self.load_state_dict(torch.load(hyp['embedder/pretrained_path'], map_location='cpu')['embedder'])
 
         for p in chain(self.lstm.parameters(), self.fc.parameters()):
             p.requires_grad = hyp['embedder/trainable']
@@ -82,6 +82,9 @@ class Embedder(nn.Module):
             args:
                 x: [B, L] or [B, 1, L]
         '''
+        # normalize input by amplitude
+        scales = 0.9 / torch.amax(torch.abs(x), dim=-1, keepdim=True)
+        x = x * scales
         mel = self.mel_transform(x)  # [B, M, T]
         mel = mel.permute(0, 2, 1).contiguous()  # [B, T, M]
         hidd, _ = self.lstm(mel)  # [B, T, H]

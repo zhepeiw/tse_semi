@@ -38,7 +38,7 @@ data_clean_prob: 1.
 
 time_stamp: placeholder
 
-experiment_name: xformer-wham-pre
+experiment_name: xformer-wham
 output_folder: !ref /mnt/data/zhepei/outputs/sb_tse/results/<time_stamp>+seed_<seed>+<experiment_name>
 train_log: !ref <output_folder>/train_log.txt
 save_folder: !ref <output_folder>/save
