@@ -45,8 +45,8 @@ class Separation(sb.Brain):
         # Unpack lists and put tensors in the right device
         mix, mix_lens = mix
         mix, mix_lens = mix.to(self.device), mix_lens.to(self.device)
-        enrollment, _ = enrollment
-        enrollment = enrollment.to(self.device)
+        enrollment, enrol_lens = enrollment
+        enrollment, enrol_lens = enrollment.to(self.device), enrol_lens.to(self.device)
 
         # Convert targets to tensor
         targets = torch.cat(
@@ -56,6 +56,9 @@ class Separation(sb.Brain):
 
         # Add speech distortions
         if stage == sb.Stage.TRAIN:
+            # TODO: temporarily set to disable training mode for embedder
+            if self.step == 1:
+                self.hparams.Embedder.eval()
             with torch.no_grad():
                 if self.hparams.use_speedperturb or self.hparams.use_rand_shift:
                     mix, targets = self.add_speed_perturb(targets, mix_lens)
@@ -90,7 +93,8 @@ class Separation(sb.Brain):
 
         # Separation
         mix_w = self.hparams.Encoder(mix)
-        emb = self.hparams.Embedder(enrollment)
+        #  emb = self.hparams.Embedder(enrollment)
+        emb = self.compute_embedding(enrollment, enrol_lens)
         est_mask = self.hparams.MaskNet(mix_w, emb)
         mix_w = torch.stack([mix_w] * self.hparams.num_spks)
         sep_h = mix_w * est_mask
@@ -134,8 +138,10 @@ class Separation(sb.Brain):
             if loss_nm in ['si-snr']:
                 output_dict[loss_nm] = loss_fn(targets, predictions, src_masks)
             elif loss_nm in ['triplet']:
-                s1_emb = self.hparams.Embedder(predictions[:, :, 0])
-                s2_emb = self.hparams.Embedder(predictions[:, :, 1])
+                #  s1_emb = self.hparams.Embedder(predictions[:, :, 0])
+                #  s2_emb = self.hparams.Embedder(predictions[:, :, 1])
+                s1_emb = self.compute_embedding(predictions[:, :, 0], torch.ones(predictions.shape[0]).to(predictions.device))
+                s2_emb = self.compute_embedding(predictions[:, :, 1], torch.ones(predictions.shape[0]).to(predictions.device))
                 # rescale predictions
                 #  # [bs, 1, 1]
                 #  prediction_scales = 0.9 / torch.amax(torch.abs(predictions),
@@ -195,6 +201,7 @@ class Separation(sb.Brain):
                 self.datapoints_seen += mixture.data.shape[0]
                 #  self.hparams.datapoint_counter.update(mixture.data.shape[0])
             else:
+                pdb.set_trace()
                 self.nonfinite_count += 1
                 logger.info(
                     "infinite loss or empty loss! it happened {} times so far - skipping this batch".format(
@@ -300,6 +307,12 @@ class Separation(sb.Brain):
         self.train_loss_buffer = {}
         self.valid_stats = {}
         self.load_pretrain_checkpoint()
+
+    def on_stage_start(self, stage, epoch=None):
+        super().on_stage_start(stage, epoch)
+        if stage == sb.Stage.TEST:
+            # disable normalization updates for test
+            self.hparams.mean_var_norm_emb.update_until_epoch = 0
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of a epoch."""
@@ -597,6 +610,30 @@ class Separation(sb.Brain):
                 sb.utils.checkpoints.torch_parameter_transfer(
                     self.hparams.modules[module_key], param_file, self.device)
                 print('Recovering pretrained {} from {}'.format(module_key, param_file))
+
+    def compute_embedding(self, wavs, wav_lens):
+        """Compute speaker embeddings.
+        Arguments
+        ---------
+        wavs : Torch.Tensor
+            Tensor containing the speech waveform (batch, time).
+            Make sure the sample rate is fs=16000 Hz.
+        wav_lens: Torch.Tensor
+            Tensor containing the relative length for each sentence
+            in the length (e.g., [0.8 0.6 1.0])
+        """
+        # normalize input by amplitude
+        scales = 0.9 / torch.amax(torch.abs(wavs), dim=-1, keepdim=True)
+        wavs = wavs * scales
+        feats = self.hparams.compute_features(wavs)
+        feats = self.hparams.mean_var_norm(feats, wav_lens)
+        embeddings = self.hparams.Embedder(feats, wav_lens)
+        embeddings = self.hparams.mean_var_norm_emb(
+            embeddings, torch.ones(embeddings.shape[0]).to(embeddings.device),
+            epoch=self.hparams.epoch_counter.current
+        )
+        embeddings = embeddings / (1e-8 + torch.norm(embeddings, p=2, dim=-1, keepdim=True))
+        return embeddings.squeeze(1)
 
 
 if __name__ == "__main__":
