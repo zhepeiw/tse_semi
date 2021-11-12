@@ -34,6 +34,8 @@ import csv
 import logging
 import datetime
 import wandb
+from spid_modules.ECAPA_TDNN import ECAPA_TDNN
+from spid_modules.embedder import Embedder as BLSTM_Embedder
 import pdb
 
 
@@ -293,7 +295,8 @@ class Separation(sb.Brain):
         super().on_stage_start(stage, epoch)
         if stage == sb.Stage.TEST:
             # disable normalization updates for test
-            self.hparams.mean_var_norm_emb.update_until_epoch = 0
+            if isinstance(self.hparams.Embedder, ECAPA_TDNN):
+                self.hparams.mean_var_norm_emb.update_until_epoch = 0
 
     def on_stage_end(self, stage, stage_loss, epoch):
         """Gets called at the end of a epoch."""
@@ -413,6 +416,7 @@ class Separation(sb.Brain):
         self.on_evaluate_start(min_key='si-snr')
         # This package is required for SDR computation
         from mir_eval.separation import bss_eval_sources
+        from pesq import pesq
 
         # Create folders where to store audio
         save_file = os.path.join(self.hparams.output_folder, "test_results.csv")
@@ -422,8 +426,10 @@ class Separation(sb.Brain):
         #  all_sdrs_i = []
         all_sisnrs = []
         all_sisnrs_i = []
+        all_pesqs = []
+        all_pesqs_i = []
         #  csv_columns = ["snt_id", "sdr", "sdr_i", "si-snr", "si-snr_i"]
-        csv_columns = ["snt_id", "si-snr", "si-snr_i"]
+        csv_columns = ["snt_id", "si-snr", "si-snr_i", "pesq", "pesq_i"]
 
         test_loader = sb.dataio.dataloader.make_dataloader(
             test_data, **self.hparams.test_dataloader_opts
@@ -475,6 +481,34 @@ class Separation(sb.Brain):
                     #  )
                     #
                     #  sdr_i = sdr.mean() - sdr_baseline.mean()
+                    #  sdr, _, _, _ = bss_eval_sources(
+                    #      targets[0, :, 0].unsqueeze(0).cpu().numpy(),
+                    #      predictions[0, :, 0].unsqueeze(0).cpu().numpy(),
+                    #      compute_permutation=False
+                    #  )
+                    #
+                    #  sdr_baseline, _, _, _ = bss_eval_sources(
+                    #      targets[0, :, 0].unsqueeze(0).cpu().numpy(),
+                    #      mixture_signal[0, :, 0].unsqueeze(0).cpu().numpy(),
+                    #      compute_permutation=False
+                    #  )
+                    #  sdr_i = sdr.mean() - sdr_baseline.mean()
+
+                    # Compute PESQ
+                    pesq_est = pesq(
+                        fs=self.hparams.sample_rate,
+                        ref=targets[0, :, 0].cpu().numpy(),
+                        deg=predictions[0, :, 0].cpu().numpy(),
+                        mode='nb'
+                    )
+
+                    pesq_baseline = pesq(
+                        fs=self.hparams.sample_rate,
+                        ref=targets[0, :, 0].cpu().numpy(),
+                        deg=mixture_signal[0, :, 0].cpu().numpy(),
+                        mode='nb'
+                    )
+                    pesq_i = pesq_est - pesq_baseline
 
                     # Saving on a csv file
                     row = {
@@ -483,6 +517,8 @@ class Separation(sb.Brain):
                         #  "sdr_i": sdr_i,
                         "si-snr": -sisnr.item(),
                         "si-snr_i": -sisnr_i.item(),
+                        "pesq": pesq_est,
+                        "pesq_i": pesq_i,
                     }
                     writer.writerow(row)
 
@@ -491,6 +527,8 @@ class Separation(sb.Brain):
                     #  all_sdrs_i.append(sdr_i.mean())
                     all_sisnrs.append(-sisnr.item())
                     all_sisnrs_i.append(-sisnr_i.item())
+                    all_pesqs.append(pesq_est)
+                    all_pesqs_i.append(pesq_i)
 
                 row = {
                     "snt_id": "avg",
@@ -498,6 +536,8 @@ class Separation(sb.Brain):
                     #  "sdr_i": np.array(all_sdrs_i).mean(),
                     "si-snr": np.array(all_sisnrs).mean(),
                     "si-snr_i": np.array(all_sisnrs_i).mean(),
+                    "pesq": np.array(all_pesqs).mean(),
+                    "pesq_i": np.array(all_pesqs_i).mean(),
                 }
                 writer.writerow(row)
 
@@ -505,6 +545,22 @@ class Separation(sb.Brain):
         logger.info("Mean SISNRi is {}".format(np.array(all_sisnrs_i).mean()))
         #  logger.info("Mean SDR is {}".format(np.array(all_sdrs).mean()))
         #  logger.info("Mean SDRi is {}".format(np.array(all_sdrs_i).mean()))
+        logger.info("Mean PESQ is {}".format(np.array(all_pesqs).mean()))
+        logger.info("Mean PESQi is {}".format(np.array(all_pesqs_i).mean()))
+
+        with tqdm(test_loader, dynamic_ncols=True) as t:
+            for i, batch in enumerate(t):
+                mixture = batch.mix_sig.data[0].cpu().numpy()
+                targets = batch.s1_sig.data[0].numpy()
+                pesq_baseline = pesq(
+                    fs=self.hparams.sample_rate,
+                    ref=targets,
+                    deg=mixture,
+                    mode='nb'
+                )
+                all_pesqs.append(pesq_baseline)
+        logger.info("Mean PESQ is {}".format(np.array(all_pesqs).mean()))
+
 
     def save_audio(self, snt_id, mixture, targets, predictions):
         "saves the test audio (mixture, targets, and estimated sources) on disk"
@@ -589,18 +645,22 @@ class Separation(sb.Brain):
             Tensor containing the relative length for each sentence
             in the length (e.g., [0.8 0.6 1.0])
         """
-        # normalize input by amplitude
-        scales = 0.9 / torch.amax(torch.abs(wavs), dim=-1, keepdim=True)
-        wavs = wavs * scales
-        feats = self.hparams.compute_features(wavs)
-        feats = self.hparams.mean_var_norm(feats, wav_lens)
-        embeddings = self.hparams.Embedder(feats, wav_lens)
-        embeddings = self.hparams.mean_var_norm_emb(
-            embeddings, torch.ones(embeddings.shape[0]).to(embeddings.device),
-            epoch=self.hparams.epoch_counter.current
-        )
-        embeddings = embeddings / (1e-8 + torch.norm(embeddings, p=2, dim=-1, keepdim=True))
-        return embeddings.squeeze(1)
+        if isinstance(self.hparams.Embedder, ECAPA_TDNN):
+            # normalize input by amplitude
+            scales = 0.9 / torch.amax(torch.abs(wavs), dim=-1, keepdim=True)
+            wavs = wavs * scales
+            feats = self.hparams.compute_features(wavs)
+            feats = self.hparams.mean_var_norm(feats, wav_lens)
+            embeddings = self.hparams.Embedder(feats, wav_lens)
+            embeddings = self.hparams.mean_var_norm_emb(
+                embeddings, torch.ones(embeddings.shape[0]).to(embeddings.device),
+                epoch=self.hparams.epoch_counter.current
+            )
+            embeddings = embeddings / (1e-8 + torch.norm(embeddings, p=2, dim=-1, keepdim=True))
+            return embeddings.squeeze(1)
+        elif isinstance(self.hparams.Embedder, BLSTM_Embedder):
+            embeddings = self.hparams.Embedder(wavs)
+            return embeddings
 
 
 if __name__ == "__main__":

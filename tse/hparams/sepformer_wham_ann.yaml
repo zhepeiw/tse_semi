@@ -121,42 +121,41 @@ valid_dataloader_opts:
 
 test_dataloader_opts: !ref <valid_dataloader_opts>
 
-# N_emb_dim: 256  # 256 for BLSTM
-# Embedder: !new:spid_modules.embedder.Embedder
-#     hyp:
-#         audio/sample_rate: !ref <sample_rate>
-#         embedder/n_fft: 512
-#         embedder/hop: 160
-#         embedder/n_mels: 40
-#         embedder/lstm_hidden: 768
-#         embedder/num_layers: 3
-#         embedder/emb_dim: !ref <N_emb_dim>
-#         embedder/pretrained_path: null
-#         # embedder/pretrained_path: /mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/chkpt_100000.pt
-#         embedder/trainable: False
-N_emb_dim: 192  # for ECAPA
-n_mels: 80
-Embedder: !new:spid_modules.ECAPA_TDNN.ECAPA_TDNN
-    input_size: !ref <n_mels>
-    channels: [1024, 1024, 1024, 1024, 3072]
-    kernel_sizes: [5, 3, 3, 3, 1]
-    dilations: [1, 2, 3, 4, 1]
-    groups: [1, 1, 1, 1, 1]
-    attention_channels: 128
-    lin_neurons: 192
-    trainable: False
-
-compute_features: !new:speechbrain.lobes.features.Fbank
-    sample_rate: !ref <sample_rate>
-    n_mels: !ref <n_mels>
-
-mean_var_norm: !new:speechbrain.processing.features.InputNormalization
-    norm_type: sentence
-    std_norm: False
-
-mean_var_norm_emb: !new:speechbrain.processing.features.InputNormalization
-    norm_type: global
-    std_norm: False
+N_emb_dim: 256  # 256 for BLSTM
+Embedder: !new:spid_modules.embedder.Embedder
+    hyp:
+        audio/sample_rate: !ref <sample_rate>
+        embedder/n_fft: 512
+        embedder/hop: 160
+        embedder/n_mels: 40
+        embedder/lstm_hidden: 768
+        embedder/num_layers: 3
+        embedder/emb_dim: !ref <N_emb_dim>
+        embedder/pretrained_path: null
+        embedder/trainable: False
+# N_emb_dim: 192  # for ECAPA
+# n_mels: 80
+# Embedder: !new:spid_modules.ECAPA_TDNN.ECAPA_TDNN
+#     input_size: !ref <n_mels>
+#     channels: [1024, 1024, 1024, 1024, 3072]
+#     kernel_sizes: [5, 3, 3, 3, 1]
+#     dilations: [1, 2, 3, 4, 1]
+#     groups: [1, 1, 1, 1, 1]
+#     attention_channels: 128
+#     lin_neurons: 192
+#     trainable: False
+#
+# compute_features: !new:speechbrain.lobes.features.Fbank
+#     sample_rate: !ref <sample_rate>
+#     n_mels: !ref <n_mels>
+#
+# mean_var_norm: !new:speechbrain.processing.features.InputNormalization
+#     norm_type: sentence
+#     std_norm: False
+#
+# mean_var_norm_emb: !new:speechbrain.processing.features.InputNormalization
+#     norm_type: global
+#     std_norm: False
 
 # Specifying the network
 Encoder: !new:speechbrain.lobes.models.dual_path.Encoder
@@ -249,7 +248,7 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         decoder: !ref <Decoder>
         masknet: !ref <MaskNet>
         embedder: !ref <Embedder>
-        mean_var_norm_emb: !ref <mean_var_norm_emb>
+        # mean_var_norm_emb: !ref <mean_var_norm_emb>
         counter: !ref <epoch_counter>
         lr_scheduler: !ref <lr_scheduler>
         # datapoint_counter: !ref <datapoint_counter>
@@ -278,5 +277,5 @@ pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
     loadables:
         embedding_model: !ref <Embedder>
     paths:
-        # embedding_model: /mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/embedder_100000.pt
-      embedding_model: /mnt/data/zhepei/outputs/ecapa_augment_8k/1986/save/CKPT+2021-10-30+08-02-06+00/embedding_model.ckpt
+        embedding_model: /mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-29-22-19-31_blstm_softmax_8k_bs46_4sec/chkpt/embedder_100000.pt
+      # embedding_model: /mnt/data/zhepei/outputs/ecapa_augment_8k/1986/save/CKPT+2021-10-30+08-02-06+00/embedding_model.ckpt
