@@ -57,6 +57,7 @@ def train(args, pt_dir, chkpt_path, trainloader, testloader, writer, logger, hp,
         step = ckpt['step']
         print('Checkpoint loaded from {}'.format(hp['pretrain/ckpt_path']))
 
+    torch.autograd.set_detect_anomaly(True)
     try:
         while True:
             embedder.train()
@@ -71,6 +72,10 @@ def train(args, pt_dir, chkpt_path, trainloader, testloader, writer, logger, hp,
                                            model_emb.shape[-1])  # [B, M, D]
                 # loss
                 loss = loss_fn(model_emb)
+                if loss.item() > 1e8 or torch.isnan(loss).any():
+                    pdb.set_trace()
+                    logger.error("Loss exploded to %.02f at step %d!" % (loss.item(), step))
+                    #  raise Exception("Loss exploded")
                 loss.backward()
                 if hp['train/clip_grad_norm'] is not None:
                     nn.utils.clip_grad_norm_(embedder.parameters(), hp['train/clip_grad_norm'])
@@ -81,10 +86,6 @@ def train(args, pt_dir, chkpt_path, trainloader, testloader, writer, logger, hp,
 
                 loss = loss.item()
                 cache_loss.append(loss)
-                if loss > 1e8 or math.isnan(loss):
-                    pdb.set_trace()
-                    logger.error("Loss exploded to %.02f at step %d!" % (loss, step))
-                    raise Exception("Loss exploded")
 
                 # write loss to tensorboard
                 if step % hp['train/summary_interval'] == 0:

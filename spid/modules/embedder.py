@@ -75,6 +75,9 @@ class Embedder(nn.Module):
             args:
                 x: [B, L] or [B, 1, L]
         '''
+        # normalize input by amplitude
+        scales = 0.9 / (torch.amax(torch.abs(x), dim=-1, keepdim=True) + 1e-8)
+        x = x * scales
         mel = self.mel_transform(x)  # [B, M, T]
         mel = mel.permute(0, 2, 1).contiguous()  # [B, T, M]
         hidd, _ = self.lstm(mel)  # [B, T, H]

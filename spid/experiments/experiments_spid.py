@@ -1,6 +1,6 @@
 hyp = {
 
-    'log/base_dir': '/mnt/nvme/zhepei/outputs/tse_semi/spid',
+    'log/base_dir': '/mnt/data/zhepei/outputs/tse_semi/spid',
     'log/chkpt_dir': 'chkpt',
     'log/use_wandb': True,
     'log/wandb/project': 'spid',
@@ -59,7 +59,7 @@ hyp = {
     'train/checkpoint_interval': 25000,
 
     'eval/eval_interval': 25000,
-    'eval/path_to_test_list': '/mnt/data/Speech/VoxCeleb1/veri_test.txt',
+    'eval/path_to_test_list': '/mnt/data/Speech/VoxCeleb1/meta/veri_test.txt',
     'eval/path_to_test': '/mnt/data/Speech/VoxCeleb1/test_wav',
     'eval/num_files': None,
 }
@@ -102,7 +102,7 @@ def blstm_softmax_bs40_3sec(experiment_name='vfpt_spid', run_name='blstm_softmax
         'train/scheduler/gamma': 0.5,
 
         'pretrain': True,
-        'pretrain/ckpt_path': '/mnt/nvme/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-17-21-58-03_blstm_softmax_bs40_3sec/chkpt/chkpt_50000.pt',
+        'pretrain/ckpt_path': '/mnt/data/zhepei/outputs/tse_semi/spid/vfpt_spid/2021-08-17-21-58-03_blstm_softmax_bs40_3sec/chkpt/chkpt_50000.pt',
     }
     hyp.update(hyp_update_dict)
     return experiment_name, run_name, hyp
