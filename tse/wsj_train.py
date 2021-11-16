@@ -59,8 +59,8 @@ class Separation(sb.Brain):
         # Add speech distortions
         if stage == sb.Stage.TRAIN:
             # TODO: temporarily set to disable training mode for embedder
-            if self.step == 1:
-                self.hparams.Embedder.eval()
+            #  if self.step == 1:
+            #      self.hparams.Embedder.eval()
             with torch.no_grad():
                 if self.hparams.use_speedperturb or self.hparams.use_rand_shift:
                     mix, targets = self.add_speed_perturb(targets, mix_lens)
@@ -548,20 +548,6 @@ class Separation(sb.Brain):
         logger.info("Mean PESQ is {}".format(np.array(all_pesqs).mean()))
         logger.info("Mean PESQi is {}".format(np.array(all_pesqs_i).mean()))
 
-        with tqdm(test_loader, dynamic_ncols=True) as t:
-            for i, batch in enumerate(t):
-                mixture = batch.mix_sig.data[0].cpu().numpy()
-                targets = batch.s1_sig.data[0].numpy()
-                pesq_baseline = pesq(
-                    fs=self.hparams.sample_rate,
-                    ref=targets,
-                    deg=mixture,
-                    mode='nb'
-                )
-                all_pesqs.append(pesq_baseline)
-        logger.info("Mean PESQ is {}".format(np.array(all_pesqs).mean()))
-
-
     def save_audio(self, snt_id, mixture, targets, predictions):
         "saves the test audio (mixture, targets, and estimated sources) on disk"
 
@@ -751,7 +737,7 @@ if __name__ == "__main__":
     # load pretrained embedder
     run_on_main(hparams["pretrainer"].collect_files)
     hparams["pretrainer"].load_collected()
-    hparams["Embedder"].eval()
+    #  hparams["Embedder"].eval()
 
     # Brain class initialization
     separator = Separation(
@@ -778,5 +764,5 @@ if __name__ == "__main__":
         )
 
     # Eval
-    separator.evaluate(test_data, min_key="si-snr")
-    #  separator.save_results(test_data)
+    #  separator.evaluate(test_data, min_key="si-snr")
+    separator.save_results(test_data)
