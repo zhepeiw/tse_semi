@@ -12,9 +12,9 @@ The repository contains two modules: the speaker embedding network and the targe
 The `wandb` package is for logging experimental metrics and artifacts and is not required.
 
 # TSE
-The training and evaluation script of the TSE is under the `tse/` directory. The configuration yaml files are under `tse/hparams/`. To train the extraction network, run
+The training and evaluation scripts of the TSE are under the `tse/` directory. The configuration yaml files are under `tse/hparams/`. To train the extraction network, run
 
-```python
+```bash
     cd ./tse
     python wsj_train.py hparams/sepformer_ann.yaml --experiment_name <experiment_name>
 ```
@@ -25,7 +25,18 @@ If `wandb` is not installed, make sure to set the `use_wandb` flag to False; the
 
 
 To evaluate a trained model with wsj0-2mix-extr, run
-```python
-   python wsj_train.py hparams/sepformer_ann_eval.yaml --use_wandb False --test_only True --output_folder <output_folder>
+```bash
+    python wsj_train.py hparams/sepformer_ann_eval.yaml --use_wandb False --test_only True --output_folder <output_folder>
 ```
 where the argument `<output_folder>` is as specified in the yaml file.
+
+
+# SPID
+The training and evaluation scripts of the speaker embedder network is contained in `spid/`. To train the speaker embedding network, run
+
+```bash
+    cd ./spid
+    python spid_trainer.py -e blstm_softmax_8k_bs46_4sec
+```
+
+This script trains the BLSTM-based embedder network using the generalized end-to-end (GE2E) loss with the combination of `librispeech`, `VoxCeleb1`, and `VoxCeleb2` datasets. Please modify the entries under `datasets/speech` in the `spid/experiments/experiments_spid.py` file according to your preparation and location of the datasets.
