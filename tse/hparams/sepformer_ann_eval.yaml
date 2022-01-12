@@ -30,11 +30,11 @@ base_folder_dm_info_list:
   - path: '/mnt/data/wsj0.8k/si_tr_s/'
     ext: 'wav'
     type: 'clean'
-  - path: '/mnt/data/Speech/VoxCeleb1/dev_wav/'
-    ext: 'wav'
-    type: 'unclean'
+  # - path: '/mnt/data/Speech/VoxCeleb1/dev_wav/'
+  #   ext: 'wav'
+  #   type: 'unclean'
 
-data_clean_prob: .9
+data_clean_prob: 1.
 
 time_stamp: placeholder_stamp
 
@@ -61,7 +61,7 @@ sample_rate: 8000
 # Training parameters
 N_epochs: 200
 batch_size: 1
-lr: 0.000075
+lr: 0.00015
 clip_grad_norm: 5
 loss_upper_lim: 999999  # this is the upper limit for an acceptable loss
 # if True, the training sequences are cut to a specified length
@@ -230,8 +230,8 @@ train_loss:
     si-snr: !new:losses.MultiSrcNegSDR
         sdr_type: sisdr
         first_channel_only: False
-    triplet: !new:torch.nn.TripletMarginLoss
-        margin: 1.0
+    # triplet: !new:torch.nn.TripletMarginLoss
+    #     margin: 1.0
 
 valid_loss: 
     si-snr: !new:losses.MultiSrcNegSDR
@@ -244,7 +244,7 @@ lr_scheduler: !new:speechbrain.nnet.schedulers.ReduceLROnPlateau
     lr_min: 0.0000001
     factor: 0.5
     patience: 2
-    dont_halve_until_epoch: 65
+    dont_halve_until_epoch: 85
 
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <N_epochs>
@@ -267,11 +267,11 @@ checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
         counter: !ref <epoch_counter>
         lr_scheduler: !ref <lr_scheduler>
 
-# pretrain_checkpointer: null
+pretrain_checkpointer: null
 # pretrain_checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
 #     checkpoints_dir: /mnt/data/zhepei/outputs/sb_tse/results/2021-09-06+22-03-11+seed_1234+sepformer_wsj_add/save
-pretrain_checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
-    checkpoints_dir: /mnt/data/zhepei/outputs/sb_tse/results/2021-11-09+21-49-46+seed_1234+wsj_blstm_add/save
+# pretrain_checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+#     checkpoints_dir: /mnt/data/zhepei/outputs/sb_tse/results/2021-11-09+21-49-46+seed_1234+wsj_blstm_add/save
 
 train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
@@ -285,7 +285,7 @@ wandb_logger:
     name: !ref <time_stamp>+seed_<seed>+<experiment_name>
     dir: !ref <output_folder>
     reinit: True
-    yaml_config: hparams/sepformer_ann.yaml
+    yaml_config: hparams/sepformer_ann_eval.yaml
     resume: False
 
 pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer

@@ -59,8 +59,9 @@ class Separation(sb.Brain):
         # Add speech distortions
         if stage == sb.Stage.TRAIN:
             # TODO: temporarily set to disable training mode for embedder
-            #  if self.step == 1:
-            #      self.hparams.Embedder.eval()
+            if isinstance(self.hparams.Embedder, ECAPA_TDNN):
+                if self.step == 1:
+                    self.hparams.Embedder.eval()
             with torch.no_grad():
                 if self.hparams.use_speedperturb or self.hparams.use_rand_shift:
                     mix, targets = self.add_speed_perturb(targets, mix_lens)
@@ -737,7 +738,8 @@ if __name__ == "__main__":
     # load pretrained embedder
     run_on_main(hparams["pretrainer"].collect_files)
     hparams["pretrainer"].load_collected()
-    #  hparams["Embedder"].eval()
+    if isinstance(hparams["Embedder"], ECAPA_TDNN):
+        hparams["Embedder"].eval()
 
     # Brain class initialization
     separator = Separation(
